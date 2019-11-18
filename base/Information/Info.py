@@ -1,7 +1,8 @@
-from Information.BufferInfo import BufferInfo
-from Information.IncrementableNum import IncrementingNumber
-from Information.OwnershipInfo import OwnershipInfo
+from base.Information.BufferInfo import BufferInfo
+from base.Information.IncrementableNum import IncrementingNumber
+from base.Information.OwnershipInfo import OwnershipInfo
 from base.MapMaker import *
+
 
 # gets and holds the iformation from the user that is necesary for the program to run
 class Info:

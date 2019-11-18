@@ -1,5 +1,5 @@
 # a program to build the layers required to determine where to put siesmometers on a fault based on:
-from Information.Info import Info
+from base.Information.Info import *
 from base.BufferFault import BufferFault
 
 
