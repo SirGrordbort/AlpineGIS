@@ -14,6 +14,7 @@
 # Hydro
 # Lease
 # git testing
+import time
 import arcpy
 import copy
 
@@ -30,7 +31,7 @@ class Info:
         self.fault_buffer = self.get_fault_buffer(param_num)
         self.side_buffer = self.get_side_buffer(param_num)
         self.road_buffer = self.get_road_buffer(param_num)
-        self.ownership = OwnershipInfo(param_num)
+        self.ownership_info = OwnershipInfo(param_num)
         # TODO ensure the appropriate parameters are added to the tool
         self.analysis_zone = self.get_zone_buffer(param_num)
 
@@ -52,12 +53,15 @@ class Info:
     # TODO ensure the appropriate parameters are added to the tool
     def get_road_buffer(self, param_num):
         buffer_params = self.get_params(param_num, 3)
-        self.add_empty_strings(buffer_params, 3, 7)
+        self.add_empty_strings(buffer_params, 3, 5)
+        buffer_params.append(arcpy.GetParameterAsText(param_num.i()))
+        self.add_empty_strings(buffer_params, 6, 7)
+
         return buffer_params
 
     def get_zone_buffer(self, param_num):
         buffer_params = [self.fault_buffer[INPUT]]
-        buffer_params.append("Temp")
+        buffer_params.append(temp+str(fnum.i()))
         buffer_params.append(arcpy.GetParameterAsText(param_num.i()))
         self.add_empty_strings(buffer_params, 3, 7)
         return buffer_params
@@ -84,6 +88,7 @@ class OwnershipInfo:
         self.parcel_intent["'DCDB'"] = arcpy.GetParameterAsText(parameterNumber.i())
 
     def split(self):
+
         for parcel_str in self.parcel_intent.keys():
             selected = arcpy.SelectLayerByAttribute_management(self.ownership, "NEW_SELECTION",
                                                                "PARCEL_INT = " + parcel_str)
@@ -113,8 +118,8 @@ class Tool:
                                               buffer_info[MERGE])
         return buffered_data
 
-    def clip(self, clippee, clipper, clipped):
-        clipped_data = arcpy.Clip_analysis(clippee, clipper, clipped)
+    def clip(self, clippee, clipper, clipped, tolerance):
+        clipped_data = arcpy.Clip_analysis(clippee, clipper, clipped, tolerance)
         return clipped_data
 
 
@@ -131,6 +136,10 @@ class IncrementingNumber:
     def get(self):
         return self.num
 
+def print_time_dif(message, start, end):
+    arcpy.AddMessage(message + str(end-start) + " Seconds")
+
+
 # for buffering
 INPUT = 0
 OUTPUT = 1
@@ -144,22 +153,51 @@ MERGE = 6
 CLIPPEE = 0
 CLIPPER = 1
 CLIPPED = 2
+HIGH_TOLERANCE = "1 Kilometer"
+LOWEST_TOLERANCE = "0"
 
+# for naming intermediate files
+fnum = IncrementingNumber(-1)
+temp = "in_memory/temp"
 # function that tell which part of the program to execute and when.
 def coordinateProgram():
+
     # gets all information from user
+    start = time.time()
     info = Info()
     info.get_info()
+    print_time_dif("Getting info took ", start, time.time())
 
-    # processes information
+    # make fault related buffers
+    start = time.time()
     tool = Tool()
     tool.make_buffer(info.fault_buffer)
     tool.make_buffer(info.side_buffer)
+    print_time_dif("making basic buffers took ", start, time.time())
+    start = time.time()
     zone = tool.make_buffer(info.analysis_zone)
-    tool.clip(info.road_buffer[INPUT], zone, info.analysis_zone[OUTPUT]) # todo find road data
+    print_time_dif("making zone buffer took ", start, time.time())
 
-    info.ownership.split()
+    # make road related buffers
+    start = time.time()
+    roads_in = tool.clip(info.road_buffer[INPUT], zone, temp+str(fnum.i()), LOWEST_TOLERANCE)
+    print_time_dif("clipping roads took ", start, time.time())
+    start = time.time()
+    info.road_buffer[INPUT] = roads_in
+    tool.make_buffer(info.road_buffer)
+    print_time_dif("buffering roads took ", start, time.time())
 
+    # split land ownership
+    start = time.time()
+    clipped_ownership = tool.clip(info.ownership_info.ownership, zone, temp+str(fnum.i()), LOWEST_TOLERANCE)
+    print_time_dif("clipping ownership took ", start, time.time())
+    start = time.time()
+    info.ownership_info.ownership = clipped_ownership
+    info.ownership_info.split()
+    print_time_dif("splitting ownership took ", start, time.time())
+    start = time.time()
+    arcpy.Delete_management("in_memory")
+    print_time_dif("clearing memory took ", start, time.time())
 
 arcpy.AddMessage("COORDINATE PROGRAM CALLED")
 coordinateProgram()
