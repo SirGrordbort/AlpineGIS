@@ -46,11 +46,14 @@ class Info:
 
     def get_fault_buffer(self, param_num):
         buffer_params = self.get_params(param_num, 7)
-        buffer_params[INPUT] = self.get_alpine_fault(buffer_params[INPUT])
+        prep_tools = PrepTools()
+        buffer_params[INPUT] = prep_tools.prep_alpine_fault(buffer_params[INPUT])
         return buffer_params
 
     def get_side_buffer(self, param_num):
-        buffer_params = copy.deepcopy(self.fault_buffer)
+        buffer_params = []
+        self.add_empty_strings(buffer_params, 0, 7)
+        buffer_params[INPUT] = arcpy.CopyFeatures_management(self.fault_buffer[INPUT], temp + str(fnum.i()))
         buffer_params[OUTPUT] = arcpy.GetParameterAsText(param_num.i())
         buffer_params[DISTANCE] = arcpy.GetParameterAsText(param_num.i())
         buffer_params[SIDE] = "RIGHT"
@@ -87,10 +90,7 @@ class Info:
         for num in range(start, end):
             list.append("")
 
-    def get_alpine_fault(self, fault):
-        selected = arcpy.SelectLayerByAttribute_management(fault, "NEW_SELECTION",
-                                                           "NAME = 'Alpine Fault'")
-        return arcpy.CopyFeatures_management(selected, temp + str(fnum.i()))
+
 
 
 
@@ -124,6 +124,11 @@ class OwnershipInfo:
 
 # for preparing data to be input into the tools
 class PrepTools:
+
+    def prep_alpine_fault(self, fault):
+        selected = arcpy.SelectLayerByAttribute_management(fault, "NEW_SELECTION",
+                                                           "NAME = 'Alpine Fault'")
+        return arcpy.CopyFeatures_management(selected, temp + str(fnum.i()))
 
     def list_for_intersect(self, info):
 
@@ -218,6 +223,7 @@ def coordinateProgram():
     # make fault related buffers
     start = time.time()
     tool = Tool()
+    prep_tools = PrepTools()
     info.buffered_fault = tool.make_buffer(info.fault_buffer)
     info.buffered_side = tool.make_buffer(info.side_buffer)
     print_time_dif("making basic buffers took ", start, time.time())
@@ -246,7 +252,6 @@ def coordinateProgram():
 
     # intersect all layers
     start = time.time()
-    prep_tools = PrepTools()
     input_features = prep_tools.list_for_intersect(info)
     print_time_dif("prepping intersect data took ", start, time.time())
     start = time.time()
