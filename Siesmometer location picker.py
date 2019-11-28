@@ -21,19 +21,24 @@ import copy
 
 # try:
 
-# gets and holds the iformation from the user that is necesary for the program to run
+
+# stores information necessary for the program to run
 class Info:
     def __init__(self):
-        pass
+        self.buffered_fault = None
+        self.buffered_side = None
+        self.buffered_road = None
 
+    # gets relevant info from the tool inputs in arcpro
     def get_info(self):
         param_num = IncrementingNumber(-1)
         self.fault_buffer = self.get_fault_buffer(param_num)
         self.side_buffer = self.get_side_buffer(param_num)
         self.road_buffer = self.get_road_buffer(param_num)
         self.ownership_info = OwnershipInfo(param_num)
-        # TODO ensure the appropriate parameters are added to the tool
         self.analysis_zone = self.get_zone_buffer(param_num)
+        self.intersection_output = arcpy.GetParameterAsText(param_num.i())
+
 
 
         # TODO self.geology = arcpy.GetParameterAsText(2)
@@ -41,41 +46,51 @@ class Info:
 
     def get_fault_buffer(self, param_num):
         buffer_params = self.get_params(param_num, 7)
+        buffer_params[INPUT] = self.get_alpine_fault(buffer_params[INPUT])
         return buffer_params
 
     def get_side_buffer(self, param_num):
         buffer_params = copy.deepcopy(self.fault_buffer)
         buffer_params[OUTPUT] = arcpy.GetParameterAsText(param_num.i())
         buffer_params[DISTANCE] = arcpy.GetParameterAsText(param_num.i())
-        buffer_params[SIDE] = "LEFT"
+        buffer_params[SIDE] = "RIGHT"
         return buffer_params
 
     # TODO ensure the appropriate parameters are added to the tool
     def get_road_buffer(self, param_num):
         buffer_params = self.get_params(param_num, 3)
         self.add_empty_strings(buffer_params, 3, 5)
+        # merge type
         buffer_params.append(arcpy.GetParameterAsText(param_num.i()))
         self.add_empty_strings(buffer_params, 6, 7)
 
         return buffer_params
 
+    # gets info relating to the area of interest around the fault
     def get_zone_buffer(self, param_num):
         buffer_params = [self.fault_buffer[INPUT]]
-        buffer_params.append(temp+str(fnum.i()))
+        buffer_params.append(temp + str(fnum.i()))
+        # size of zone
         buffer_params.append(arcpy.GetParameterAsText(param_num.i()))
         self.add_empty_strings(buffer_params, 3, 7)
         return buffer_params
 
-
+    # gets a list of parameters from the arcpro tool UI
     def get_params(self, param_num, num_of_params):
         params = []
         for num in range(num_of_params):
             params.append(arcpy.GetParameterAsText(param_num.i()))
         return params
 
+    # adds empty strings in the place of unused parameters
     def add_empty_strings(self, list, start, end):
         for num in range(start, end):
             list.append("")
+
+    def get_alpine_fault(self, fault):
+        selected = arcpy.SelectLayerByAttribute_management(fault, "NEW_SELECTION",
+                                                           "NAME = 'Alpine Fault'")
+        return arcpy.CopyFeatures_management(selected, temp + str(fnum.i()))
 
 
 
@@ -86,9 +101,11 @@ class OwnershipInfo:
         self.ownership = arcpy.GetParameterAsText(parameterNumber.i())
         self.parcel_intent["'Fee Simple Title'"] = arcpy.GetParameterAsText(parameterNumber.i())
         self.parcel_intent["'DCDB'"] = arcpy.GetParameterAsText(parameterNumber.i())
+        self.is_not_split = True
 
+    # method that uses the ownership metadata to split the ownership into layers based on the land parcel intent field
     def split(self):
-
+        self.is_not_split = False
         for parcel_str in self.parcel_intent.keys():
             selected = arcpy.SelectLayerByAttribute_management(self.ownership, "NEW_SELECTION",
                                                                "PARCEL_INT = " + parcel_str)
@@ -98,12 +115,34 @@ class OwnershipInfo:
                 raise ValueError("missing key for" + parcel_str)
             arcpy.CopyFeatures_management(selected, copy_destination)
 
-        # with arcpy.da.SearchCursor(self.ownerShip, ("parcel_intent",)) as cursor:
-        # for row in cursor:
-        # if row[0] == "Fee Simple Title":
+    def get_DCDB(self):
+        return self.parcel_intent.get("'DCDB'")
+
+    def get_FST(self):
+        return self.parcel_intent.get("'Fee Simple Title'")
 
 
-# For creating a buffer
+# for preparing data to be input into the tools
+class PrepTools:
+
+    def list_for_intersect(self, info):
+
+        # precondition checks
+        if info.buffered_fault is None:
+            raise TypeError("buffered_fault has not been initialised")
+        if info.buffered_side is None:
+            raise TypeError("buffered_side has not been initialised")
+        if info.buffered_road is None:
+            raise TypeError("buffered_road has not been initialised")
+        if info.ownership_info.is_not_split:
+            raise TypeError("ownership has not been split")
+
+        input_features = [info.buffered_fault, info.buffered_side, info.buffered_road, info.ownership_info.get_FST(),
+                          info.ownership_info.get_DCDB()] # union relevant ownership layers first
+        return input_features
+
+
+# For running arcpy tools
 class Tool:
 
     # constructor that gets the required buffer information
@@ -118,9 +157,15 @@ class Tool:
                                               buffer_info[MERGE])
         return buffered_data
 
+    # implements the clip tool
     def clip(self, clippee, clipper, clipped, tolerance):
         clipped_data = arcpy.Clip_analysis(clippee, clipper, clipped, tolerance)
         return clipped_data
+
+    # intersect tool that takes the features to be intersected, the location of the output featue likely temp and the
+    # attributes for the output feature that are preserved from the input features
+    def make_intersect(self, in_features, out_feature, out_attr):
+        return arcpy.Intersect_analysis(in_features, out_feature, out_attr)
 
 
 # a number that can be easily incremented (in place of the ++num java code)
@@ -136,8 +181,9 @@ class IncrementingNumber:
     def get(self):
         return self.num
 
+# a function for printing a message in arcpro that has the time difference between to parts of code
 def print_time_dif(message, start, end):
-    arcpy.AddMessage(message + str(end-start) + " Seconds")
+    arcpy.AddMessage(message + str(end - start) + " Seconds")
 
 
 # for buffering
@@ -159,9 +205,10 @@ LOWEST_TOLERANCE = "0"
 # for naming intermediate files
 fnum = IncrementingNumber(-1)
 temp = "in_memory/temp"
+
+
 # function that tell which part of the program to execute and when.
 def coordinateProgram():
-
     # gets all information from user
     start = time.time()
     info = Info()
@@ -171,8 +218,8 @@ def coordinateProgram():
     # make fault related buffers
     start = time.time()
     tool = Tool()
-    tool.make_buffer(info.fault_buffer)
-    tool.make_buffer(info.side_buffer)
+    info.buffered_fault = tool.make_buffer(info.fault_buffer)
+    info.buffered_side = tool.make_buffer(info.side_buffer)
     print_time_dif("making basic buffers took ", start, time.time())
     start = time.time()
     zone = tool.make_buffer(info.analysis_zone)
@@ -180,24 +227,36 @@ def coordinateProgram():
 
     # make road related buffers
     start = time.time()
-    roads_in = tool.clip(info.road_buffer[INPUT], zone, temp+str(fnum.i()), LOWEST_TOLERANCE)
+    roads_in = tool.clip(info.road_buffer[INPUT], zone, temp + str(fnum.i()), LOWEST_TOLERANCE)
     print_time_dif("clipping roads took ", start, time.time())
     start = time.time()
-    info.road_buffer[INPUT] = roads_in
-    tool.make_buffer(info.road_buffer)
+    road_buffer_copy = copy.deepcopy(info.road_buffer)
+    road_buffer_copy[INPUT] = roads_in
+    info.buffered_road = tool.make_buffer(road_buffer_copy)
     print_time_dif("buffering roads took ", start, time.time())
 
     # split land ownership
     start = time.time()
-    clipped_ownership = tool.clip(info.ownership_info.ownership, zone, temp+str(fnum.i()), LOWEST_TOLERANCE)
+    clipped_ownership = tool.clip(info.ownership_info.ownership, zone, temp + str(fnum.i()), LOWEST_TOLERANCE)
     print_time_dif("clipping ownership took ", start, time.time())
     start = time.time()
     info.ownership_info.ownership = clipped_ownership
     info.ownership_info.split()
     print_time_dif("splitting ownership took ", start, time.time())
+
+    # intersect all layers
+    start = time.time()
+    prep_tools = PrepTools()
+    input_features = prep_tools.list_for_intersect(info)
+    print_time_dif("prepping intersect data took ", start, time.time())
+    start = time.time()
+    tool.make_intersect(input_features, info.intersection_output, "ONLY_FID")
+    print_time_dif("intersecting layers took ", start, time.time())
+
     start = time.time()
     arcpy.Delete_management("in_memory")
     print_time_dif("clearing memory took ", start, time.time())
+
 
 arcpy.AddMessage("COORDINATE PROGRAM CALLED")
 coordinateProgram()
