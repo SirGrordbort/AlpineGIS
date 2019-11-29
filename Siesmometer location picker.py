@@ -36,6 +36,7 @@ class Info:
         self.side_buffer = self.get_side_buffer(param_num)
         self.road_buffer = self.get_road_buffer(param_num)
         self.ownership_info = OwnershipInfo(param_num)
+        self.doc_land = self.get_doc_land(param_num)
         self.analysis_zone = self.get_zone_buffer(param_num)
         self.intersection_output = arcpy.GetParameterAsText(param_num.i())
 
@@ -43,6 +44,10 @@ class Info:
 
         # TODO self.geology = arcpy.GetParameterAsText(2)
         # TODO self.idealSpacing = arcpy.GetParameterAsText(3)
+    def get_doc_land(self, param_num):
+        return [arcpy.GetParameterAsText(param_num.i())]
+
+
 
     def get_fault_buffer(self, param_num):
         buffer_params = self.get_params(param_num, 7)
@@ -251,12 +256,12 @@ def coordinateProgram():
     print_time_dif("splitting ownership took ", start, time.time())
 
     # intersect all layers
-    start = time.time()
-    input_features = prep_tools.list_for_intersect(info)
-    print_time_dif("prepping intersect data took ", start, time.time())
-    start = time.time()
-    tool.make_intersect(input_features, info.intersection_output, "ONLY_FID")
-    print_time_dif("intersecting layers took ", start, time.time())
+    # start = time.time()
+    # input_features = prep_tools.list_for_intersect(info)
+    # print_time_dif("prepping intersect data took ", start, time.time())
+    # start = time.time()
+    # tool.make_intersect(input_features, info.intersection_output, "ONLY_FID")
+    # print_time_dif("intersecting layers took ", start, time.time())
 
     start = time.time()
     arcpy.Delete_management("in_memory")
