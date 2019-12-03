@@ -28,6 +28,8 @@ class Info:
         self.buffered_fault = None
         self.buffered_side = None
         self.buffered_road = None
+        self.clipped_doc = None
+        self.clipped_dissolved_doc = None
 
     # gets relevant info from the tool inputs in arcpro
     def get_info(self):
@@ -35,24 +37,25 @@ class Info:
         self.fault_buffer = self.get_fault_buffer(param_num)
         self.side_buffer = self.get_side_buffer(param_num)
         self.road_buffer = self.get_road_buffer(param_num)
-        self.ownership_info = OwnershipInfo(param_num)
+        #self.ownership_info = OwnershipInfo(param_num)
         self.doc_land = self.get_doc_land(param_num)
-        self.analysis_zone = self.get_zone_buffer(param_num)
-        self.intersection_output = arcpy.GetParameterAsText(param_num.i())
+        #self.analysis_zone = self.get_zone_buffer(param_num)
+        self.union_output = arcpy.GetParameterAsText(param_num.i())
 
 
 
         # TODO self.geology = arcpy.GetParameterAsText(2)
         # TODO self.idealSpacing = arcpy.GetParameterAsText(3)
     def get_doc_land(self, param_num):
-        return [arcpy.GetParameterAsText(param_num.i())]
+        return [arcpy.GetParameterAsText(param_num.i()), arcpy.GetParameterAsText(param_num.i())]
 
 
 
     def get_fault_buffer(self, param_num):
         buffer_params = self.get_params(param_num, 7)
-        prep_tools = PrepTools()
-        buffer_params[INPUT] = prep_tools.prep_alpine_fault(buffer_params[INPUT])
+        buffer_params[METHOD] = "ALL"
+        # prep_tools = PrepTools()
+        # buffer_params[INPUT] = prep_tools.prep_alpine_fault(buffer_params[INPUT])
         return buffer_params
 
     def get_side_buffer(self, param_num):
@@ -61,7 +64,8 @@ class Info:
         buffer_params[INPUT] = arcpy.CopyFeatures_management(self.fault_buffer[INPUT], temp + str(fnum.i()))
         buffer_params[OUTPUT] = arcpy.GetParameterAsText(param_num.i())
         buffer_params[DISTANCE] = arcpy.GetParameterAsText(param_num.i())
-        buffer_params[SIDE] = "RIGHT"
+        buffer_params[SIDE] = "LEFT"
+        buffer_params[METHOD] = "ALL"
         return buffer_params
 
     # TODO ensure the appropriate parameters are added to the tool
@@ -135,7 +139,7 @@ class PrepTools:
                                                            "NAME = 'Alpine Fault'")
         return arcpy.CopyFeatures_management(selected, temp + str(fnum.i()))
 
-    def list_for_intersect(self, info):
+    def list_for_tool(self, info):
 
         # precondition checks
         if info.buffered_fault is None:
@@ -144,11 +148,10 @@ class PrepTools:
             raise TypeError("buffered_side has not been initialised")
         if info.buffered_road is None:
             raise TypeError("buffered_road has not been initialised")
-        if info.ownership_info.is_not_split:
-            raise TypeError("ownership has not been split")
+        if info.clipped_dissolved_doc is None:
+            raise TypeError("doc land has not been dissolved")
 
-        input_features = [info.buffered_fault, info.buffered_side, info.buffered_road, info.ownership_info.get_FST(),
-                          info.ownership_info.get_DCDB()] # union relevant ownership layers first
+        input_features = [info.buffered_fault, info.buffered_side, info.buffered_road, info.clipped_dissolved_doc]
         return input_features
 
 
@@ -177,6 +180,11 @@ class Tool:
     def make_intersect(self, in_features, out_feature, out_attr):
         return arcpy.Intersect_analysis(in_features, out_feature, out_attr)
 
+    def union(self, in_features, out_feature, join_attr):
+        return arcpy.Union_analysis(in_features, out_feature, join_attr)
+
+    def dissolve(self, in_features, out_feature):
+        return arcpy.Dissolve_management(in_features, out_feature)
 
 # a number that can be easily incremented (in place of the ++num java code)
 class IncrementingNumber:
@@ -232,13 +240,13 @@ def coordinateProgram():
     info.buffered_fault = tool.make_buffer(info.fault_buffer)
     info.buffered_side = tool.make_buffer(info.side_buffer)
     print_time_dif("making basic buffers took ", start, time.time())
-    start = time.time()
-    zone = tool.make_buffer(info.analysis_zone)
-    print_time_dif("making zone buffer took ", start, time.time())
+    # start = time.time()
+    # zone = tool.make_buffer(info.analysis_zone)
+    # print_time_dif("making zone buffer took ", start, time.time())
 
     # make road related buffers
     start = time.time()
-    roads_in = tool.clip(info.road_buffer[INPUT], zone, temp + str(fnum.i()), LOWEST_TOLERANCE)
+    roads_in = tool.clip(info.road_buffer[INPUT], info.buffered_fault, temp + str(fnum.i()), LOWEST_TOLERANCE)
     print_time_dif("clipping roads took ", start, time.time())
     start = time.time()
     road_buffer_copy = copy.deepcopy(info.road_buffer)
@@ -246,14 +254,30 @@ def coordinateProgram():
     info.buffered_road = tool.make_buffer(road_buffer_copy)
     print_time_dif("buffering roads took ", start, time.time())
 
+    # clip doc land to fault buffer
+    start = time.time()
+    info.clipped_doc = tool.clip(info.doc_land[INPUT], info.buffered_fault, temp + str(fnum.i()), LOWEST_TOLERANCE)
+    print_time_dif("clipping doc land took ", start, time.time())
+
+    # dissolve doc land into a single feature
+    start = time.time()
+    info.clipped_dissolved_doc = tool.dissolve(info.clipped_doc, info.doc_land[OUTPUT])
+    print_time_dif("dissolving doc land took ", start, time.time())
+
+    # join all relevant layers with union
+    start = time.time()
+    union_input = prep_tools.list_for_tool(info)
+    tool.union(union_input, info.union_output, "")
+    print_time_dif("union of all layers took ", start, time.time())
+
     # split land ownership
-    start = time.time()
-    clipped_ownership = tool.clip(info.ownership_info.ownership, zone, temp + str(fnum.i()), LOWEST_TOLERANCE)
-    print_time_dif("clipping ownership took ", start, time.time())
-    start = time.time()
-    info.ownership_info.ownership = clipped_ownership
-    info.ownership_info.split()
-    print_time_dif("splitting ownership took ", start, time.time())
+    # start = time.time()
+    # clipped_ownership = tool.clip(info.ownership_info.ownership, info.buffered_fault, temp + str(fnum.i()), LOWEST_TOLERANCE)
+    # print_time_dif("clipping ownership took ", start, time.time())
+    # start = time.time()
+    # info.ownership_info.ownership = clipped_ownership
+    # info.ownership_info.split()
+    # print_time_dif("splitting ownership took ", start, time.time())
 
     # intersect all layers
     # start = time.time()
