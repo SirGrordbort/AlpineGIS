@@ -30,6 +30,7 @@ class Info:
         self.buffered_road = None
         self.clipped_doc = None
         self.clipped_dissolved_doc = None
+        self.unioned_layers = None
 
     # gets relevant info from the tool inputs in arcpro
     def get_info(self):
@@ -37,19 +38,17 @@ class Info:
         self.fault_buffer = self.get_fault_buffer(param_num)
         self.side_buffer = self.get_side_buffer(param_num)
         self.road_buffer = self.get_road_buffer(param_num)
-        #self.ownership_info = OwnershipInfo(param_num)
+        # self.ownership_info = OwnershipInfo(param_num)
         self.doc_land = self.get_doc_land(param_num)
-        #self.analysis_zone = self.get_zone_buffer(param_num)
+        # self.analysis_zone = self.get_zone_buffer(param_num)
         self.union_output = arcpy.GetParameterAsText(param_num.i())
-
-
+        self.theoretical_points = arcpy.GetParameterAsText(param_num.i())
 
         # TODO self.geology = arcpy.GetParameterAsText(2)
         # TODO self.idealSpacing = arcpy.GetParameterAsText(3)
+
     def get_doc_land(self, param_num):
         return [arcpy.GetParameterAsText(param_num.i()), arcpy.GetParameterAsText(param_num.i())]
-
-
 
     def get_fault_buffer(self, param_num):
         buffer_params = self.get_params(param_num, 7)
@@ -100,9 +99,6 @@ class Info:
             list.append("")
 
 
-
-
-
 class OwnershipInfo:
     def __init__(self, parameterNumber):
         assert parameterNumber.get() >= 0, "parameterNumber is negative"
@@ -139,6 +135,14 @@ class PrepTools:
                                                            "NAME = 'Alpine Fault'")
         return arcpy.CopyFeatures_management(selected, temp + str(fnum.i()))
 
+    def get_rating_fields(self, fc):
+        rating_fields = []
+        for field in arcpy.ListFields(fc):
+            fname = field.name
+            if fname.startswith("rating"):
+                rating_fields.append(fname)
+        return rating_fields
+
     def list_for_tool(self, info):
 
         # precondition checks
@@ -161,6 +165,44 @@ class Tool:
     # constructor that gets the required buffer information
     def __init__(self):
         pass
+
+    # adds a field to a list of feature classes
+    def add_field(self, f_c_list, f_name, f_type):
+        for f_class in f_c_list:
+            arcpy.AddField_management(f_class, f_name, f_type)
+
+        # post condition check
+
+    # fills a field with a specific value
+    def fill_field(self, f_class, f_name, value):
+        cursor = arcpy.da.UpdateCursor(f_class, (f_name,))
+        for row in cursor:
+            row[0] = value
+            cursor.updateRow(row)
+
+    # fills a field with the sum of values from other fields within the given feature
+    def fill_field_from_sum(self, f_class, to_update, f_names):
+        # precondition check
+        fnames = []
+        for field in arcpy.ListFields(f_class):
+            fnames.append(field.name)
+        for name in f_names:
+            assert fnames.__contains__(name)
+        assert fnames.__contains__(to_update)
+
+        search = arcpy.da.SearchCursor(f_class, f_names)
+        update = arcpy.da.UpdateCursor(f_class, (to_update,))
+        ratings = []
+        for row in search:
+            rating = 0
+            for col in row:
+                rating = rating + col
+            ratings.append(rating)
+        i = 0
+        for row2 in update:
+            row2[0] = ratings[i]
+            update.updateRow(row2)
+            i += 1
 
     # implements the buffer tool
     def make_buffer(self, buffer_info):
@@ -186,6 +228,9 @@ class Tool:
     def dissolve(self, in_features, out_feature):
         return arcpy.Dissolve_management(in_features, out_feature)
 
+
+
+
 # a number that can be easily incremented (in place of the ++num java code)
 class IncrementingNumber:
     def __init__(self, num):
@@ -198,6 +243,7 @@ class IncrementingNumber:
 
     def get(self):
         return self.num
+
 
 # a function for printing a message in arcpro that has the time difference between to parts of code
 def print_time_dif(message, start, end):
@@ -223,6 +269,15 @@ LOWEST_TOLERANCE = "0"
 # for naming intermediate files
 fnum = IncrementingNumber(-1)
 temp = "in_memory/temp"
+
+# for layer rating
+RATING = "rating"
+STATIC_RATING = "static_rating"
+BEGINS_RATING = "rating%"
+FAULT_BUFFER = 10
+SIDE_BUFFER = 5
+ROAD_BUFFER = 100
+DOC_LAND = 3
 
 
 # function that tell which part of the program to execute and when.
@@ -261,14 +316,37 @@ def coordinateProgram():
 
     # dissolve doc land into a single feature
     start = time.time()
-    info.clipped_dissolved_doc = tool.dissolve(info.clipped_doc, info.doc_land[OUTPUT])
+    info.clipped_dissolved_doc = tool.dissolve(info.clipped_doc, info.doc_land[OUTPUT], )
     print_time_dif("dissolving doc land took ", start, time.time())
+
+    # add rating field to output layers
+    add_rating = prep_tools.list_for_tool(info)
+    tool.add_field(add_rating, RATING, "SHORT")
+    for f_class in add_rating:
+        if f_class is info.buffered_fault:
+            tool.fill_field(f_class, RATING, FAULT_BUFFER)
+        elif f_class is info.buffered_side:
+            tool.fill_field(f_class, RATING, SIDE_BUFFER)
+        elif f_class is info.buffered_road:
+            tool.fill_field(f_class, RATING, ROAD_BUFFER)
+        elif f_class is info.clipped_dissolved_doc:
+            tool.fill_field(f_class, RATING, DOC_LAND)
+        else:
+            raise RuntimeError("one of the classes has not had its value field updated")
 
     # join all relevant layers with union
     start = time.time()
     union_input = prep_tools.list_for_tool(info)
-    tool.union(union_input, info.union_output, "")
+    info.unioned_layers = tool.union(union_input, info.union_output, "")
     print_time_dif("union of all layers took ", start, time.time())
+
+    # add total static rating to union layer
+    u_layers = [info.unioned_layers]
+    tool.add_field(u_layers, STATIC_RATING, "SHORT")
+    ratings = prep_tools.get_rating_fields(info.unioned_layers)
+    tool.fill_field_from_sum(info.unioned_layers, STATIC_RATING, ratings)
+
+
 
     # split land ownership
     # start = time.time()
