@@ -1,30 +1,11 @@
-# a program to build the layers required to determine where to put siesmometers on a fault based on:
-# The fault location (feature class)
-# The prefered side of the fault(Boolean)
-# The Land ownership (feature class)
-# The Geology of the area (feature class)
-# The spacing requirements for the siesmometers (double?)
-# The accessability of the site
-# CMCA feature class Common Marine and Coastal Area
-# CLB feature class Cross Lease Building
-# CI customary entitlement
-# easment
-# FST Fee Simple Title
-# FDU future development unit
-# Hydro
-# Lease
-# git testing
 import time
 import arcpy
 import copy
 
 
-# try:
-
-
-# stores information necessary for the program to run
 class Info:
     def __init__(self):
+        # attributes used by the program that have also been altered by the program i.e. intermediate values
         self.buffered_fault = None
         self.buffered_side = None
         self.buffered_road = None
@@ -34,40 +15,39 @@ class Info:
 
     # gets relevant info from the tool inputs in arcpro
     def get_info(self):
+
+        # a number that can be incremented with .i() because ++i didn't work
         param_num = IncrementingNumber(-1)
+
+        # information needed to build the specified buffers
         self.fault_buffer = self.get_fault_buffer(param_num)
         self.side_buffer = self.get_side_buffer(param_num)
         self.road_buffer = self.get_road_buffer(param_num)
-        # self.ownership_info = OwnershipInfo(param_num)
-        self.doc_land = self.get_doc_land(param_num)
-        # self.analysis_zone = self.get_zone_buffer(param_num)
-        self.union_output = arcpy.GetParameterAsText(param_num.i())
-        self.theoretical_points = arcpy.GetParameterAsText(param_num.i())
 
-        # TODO self.geology = arcpy.GetParameterAsText(2)
-        # TODO self.idealSpacing = arcpy.GetParameterAsText(3)
+        self.doc_land = self.get_doc_land(param_num)
+
+        # main program output location
+        self.union_output = arcpy.GetParameterAsText(param_num.i())
 
     def get_doc_land(self, param_num):
         return [arcpy.GetParameterAsText(param_num.i()), arcpy.GetParameterAsText(param_num.i())]
 
     def get_fault_buffer(self, param_num):
         buffer_params = self.get_params(param_num, 7)
-        buffer_params[METHOD] = "ALL"
-        # prep_tools = PrepTools()
-        # buffer_params[INPUT] = prep_tools.prep_alpine_fault(buffer_params[INPUT])
+        buffer_params[METHOD] = ALL
         return buffer_params
 
+    # input for this method based on input for fault buffer
     def get_side_buffer(self, param_num):
         buffer_params = []
         self.add_empty_strings(buffer_params, 0, 7)
         buffer_params[INPUT] = arcpy.CopyFeatures_management(self.fault_buffer[INPUT], temp + str(fnum.i()))
         buffer_params[OUTPUT] = arcpy.GetParameterAsText(param_num.i())
         buffer_params[DISTANCE] = arcpy.GetParameterAsText(param_num.i())
-        buffer_params[SIDE] = "LEFT"
-        buffer_params[METHOD] = "ALL"
+        buffer_params[SIDE] = LEFT
+        buffer_params[METHOD] = ALL
         return buffer_params
 
-    # TODO ensure the appropriate parameters are added to the tool
     def get_road_buffer(self, param_num):
         buffer_params = self.get_params(param_num, 3)
         self.add_empty_strings(buffer_params, 3, 5)
@@ -97,34 +77,6 @@ class Info:
     def add_empty_strings(self, list, start, end):
         for num in range(start, end):
             list.append("")
-
-
-class OwnershipInfo:
-    def __init__(self, parameterNumber):
-        assert parameterNumber.get() >= 0, "parameterNumber is negative"
-        self.parcel_intent = {}
-        self.ownership = arcpy.GetParameterAsText(parameterNumber.i())
-        self.parcel_intent["'Fee Simple Title'"] = arcpy.GetParameterAsText(parameterNumber.i())
-        self.parcel_intent["'DCDB'"] = arcpy.GetParameterAsText(parameterNumber.i())
-        self.is_not_split = True
-
-    # method that uses the ownership metadata to split the ownership into layers based on the land parcel intent field
-    def split(self):
-        self.is_not_split = False
-        for parcel_str in self.parcel_intent.keys():
-            selected = arcpy.SelectLayerByAttribute_management(self.ownership, "NEW_SELECTION",
-                                                               "PARCEL_INT = " + parcel_str)
-            copy_destination = self.parcel_intent.get(parcel_str, -1)
-            # Error checking
-            if copy_destination == -1:
-                raise ValueError("missing key for" + parcel_str)
-            arcpy.CopyFeatures_management(selected, copy_destination)
-
-    def get_DCDB(self):
-        return self.parcel_intent.get("'DCDB'")
-
-    def get_FST(self):
-        return self.parcel_intent.get("'Fee Simple Title'")
 
 
 # for preparing data to be input into the tools
@@ -217,7 +169,7 @@ class Tool:
         clipped_data = arcpy.Clip_analysis(clippee, clipper, clipped, tolerance)
         return clipped_data
 
-    # intersect tool that takes the features to be intersected, the location of the output featue likely temp and the
+    # intersect tool that takes the features to be intersected, the location of the output feature likely temp and the
     # attributes for the output feature that are preserved from the input features
     def make_intersect(self, in_features, out_feature, out_attr):
         return arcpy.Intersect_analysis(in_features, out_feature, out_attr)
@@ -227,8 +179,6 @@ class Tool:
 
     def dissolve(self, in_features, out_feature):
         return arcpy.Dissolve_management(in_features, out_feature)
-
-
 
 
 # a number that can be easily incremented (in place of the ++num java code)
@@ -258,6 +208,8 @@ SIDE = 3
 END = 4
 METHOD = 5
 MERGE = 6
+ALL = "ALL"
+LEFT = "LEFT"
 
 # for clipping
 CLIPPEE = 0
@@ -281,7 +233,7 @@ DOC_LAND = 3
 
 
 # function that tell which part of the program to execute and when.
-def coordinateProgram():
+def coordinate_program():
     # gets all information from user
     start = time.time()
     info = Info()
@@ -295,9 +247,6 @@ def coordinateProgram():
     info.buffered_fault = tool.make_buffer(info.fault_buffer)
     info.buffered_side = tool.make_buffer(info.side_buffer)
     print_time_dif("making basic buffers took ", start, time.time())
-    # start = time.time()
-    # zone = tool.make_buffer(info.analysis_zone)
-    # print_time_dif("making zone buffer took ", start, time.time())
 
     # make road related buffers
     start = time.time()
@@ -320,6 +269,7 @@ def coordinateProgram():
     print_time_dif("dissolving doc land took ", start, time.time())
 
     # add rating field to output layers
+    start = time.time()
     add_rating = prep_tools.list_for_tool(info)
     tool.add_field(add_rating, RATING, "SHORT")
     for f_class in add_rating:
@@ -333,6 +283,7 @@ def coordinateProgram():
             tool.fill_field(f_class, RATING, DOC_LAND)
         else:
             raise RuntimeError("one of the classes has not had its value field updated")
+    print_time_dif("adding rating fields took ", start, time.time())
 
     # join all relevant layers with union
     start = time.time()
@@ -346,35 +297,10 @@ def coordinateProgram():
     ratings = prep_tools.get_rating_fields(info.unioned_layers)
     tool.fill_field_from_sum(info.unioned_layers, STATIC_RATING, ratings)
 
-
-
-    # split land ownership
-    # start = time.time()
-    # clipped_ownership = tool.clip(info.ownership_info.ownership, info.buffered_fault, temp + str(fnum.i()), LOWEST_TOLERANCE)
-    # print_time_dif("clipping ownership took ", start, time.time())
-    # start = time.time()
-    # info.ownership_info.ownership = clipped_ownership
-    # info.ownership_info.split()
-    # print_time_dif("splitting ownership took ", start, time.time())
-
-    # intersect all layers
-    # start = time.time()
-    # input_features = prep_tools.list_for_intersect(info)
-    # print_time_dif("prepping intersect data took ", start, time.time())
-    # start = time.time()
-    # tool.make_intersect(input_features, info.intersection_output, "ONLY_FID")
-    # print_time_dif("intersecting layers took ", start, time.time())
-
     start = time.time()
     arcpy.Delete_management("in_memory")
     print_time_dif("clearing memory took ", start, time.time())
 
 
 arcpy.AddMessage("COORDINATE PROGRAM CALLED")
-coordinateProgram()
-
-# except:
-# arcpy.AddError("program failed")
-# arcpy.AddMessage(arcpy.GetMessages())
-# debugging
-# arcpy.AddMessage("FAIL")
+coordinate_program()
