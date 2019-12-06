@@ -5,6 +5,13 @@ import copy
 
 class Info:
     def __init__(self):
+
+        # a collection of soft rock names
+        self.soft_rocks = ["breccia", "conglomerate", "gravel", "mud", "mudstone", "sand"]
+
+        # a collection of hard rock names
+        self.hard_rocks = ["andesite", "basalt", "dacite", "diorite", "gabbro", "gneiss", "granite", "hornfels", "ignimbrite", "limestone", "marble", "peridotite",  "quartzite", "rhyolite", "sandstone", "schist", "serpentinite", "tuff"]
+
         # attributes used by the program that have also been altered by the program i.e. intermediate values
         self.buffered_fault = None
         self.buffered_side = None
@@ -12,6 +19,7 @@ class Info:
         self.clipped_doc = None
         self.clipped_dissolved_doc = None
         self.unioned_layers = None
+        self.clipped_geo = None
 
     # gets relevant info from the tool inputs in arcpro
     def get_info(self):
@@ -24,12 +32,16 @@ class Info:
         self.side_buffer = self.get_side_buffer(param_num)
         self.road_buffer = self.get_road_buffer(param_num)
 
-        self.doc_land = self.get_doc_land(param_num)
+        self.doc_land = self.get_in_out(param_num)
+        self.geo_map = self.get_in_out(param_num)
+        self.hard_rock_rating = arcpy.GetParameterAsText(param_num.i())
+        self.soft_rock_rating = arcpy.GetParameterAsText(param_num.i())
 
         # main program output location
         self.union_output = arcpy.GetParameterAsText(param_num.i())
 
-    def get_doc_land(self, param_num):
+    # gets a list containing an input parameter and an output parameter
+    def get_in_out(self, param_num):
         return [arcpy.GetParameterAsText(param_num.i()), arcpy.GetParameterAsText(param_num.i())]
 
     def get_fault_buffer(self, param_num):
@@ -87,6 +99,7 @@ class PrepTools:
                                                            "NAME = 'Alpine Fault'")
         return arcpy.CopyFeatures_management(selected, temp + str(fnum.i()))
 
+    # gets all fields starting with "rating" from the input feature class
     def get_rating_fields(self, fc):
         rating_fields = []
         for field in arcpy.ListFields(fc):
@@ -106,8 +119,10 @@ class PrepTools:
             raise TypeError("buffered_road has not been initialised")
         if info.clipped_dissolved_doc is None:
             raise TypeError("doc land has not been dissolved")
+        if info.clipped_geo is None:
+            raise TypeError("geo map has not been clipped")
 
-        input_features = [info.buffered_fault, info.buffered_side, info.buffered_road, info.clipped_dissolved_doc]
+        input_features = [info.buffered_fault, info.buffered_side, info.buffered_road, info.clipped_dissolved_doc, info.clipped_geo]
         return input_features
 
 
@@ -126,11 +141,33 @@ class Tool:
         # post condition check
 
     # fills a field with a specific value
-    def fill_field(self, f_class, f_name, value):
+    def fill_ratings(self, f_class, f_name, value):
         cursor = arcpy.da.UpdateCursor(f_class, (f_name,))
         for row in cursor:
             row[0] = value
             cursor.updateRow(row)
+
+    # fills the rating field of the geo class with ratings based each rock type
+    def fill_geo_ratings(self, geo_f_class, info):
+        # for rock group search cursor
+        rock = 0
+        rating = 1
+        no_rock = 0
+        u_cursor = arcpy.da.UpdateCursor(geo_f_class, ("rock_group", "rating"))
+        for row in u_cursor:
+            # apparently rows with no rock type exist, not sure why
+            if row[rock] == " ":
+                row[rating] = no_rock
+                arcpy.AddMessage("no rock found")
+
+            elif row[rock] in info.soft_rocks:
+                row[rating] = info.soft_rock_rating
+            elif row[rock] in info.hard_rocks:
+                row[rating] = info.hard_rock_rating
+            else:
+                raise RuntimeError("input rock " + row[rock] + " was not in either hard or soft rock list" + str(type(row[rock])))
+            u_cursor.updateRow(row)
+
 
     # fills a field with the sum of values from other fields within the given feature
     def fill_field_from_sum(self, f_class, to_update, f_names):
@@ -232,6 +269,7 @@ ROAD_BUFFER = 100
 DOC_LAND = 3
 
 
+
 # function that tell which part of the program to execute and when.
 def coordinate_program():
     # gets all information from user
@@ -268,19 +306,26 @@ def coordinate_program():
     info.clipped_dissolved_doc = tool.dissolve(info.clipped_doc, info.doc_land[OUTPUT], )
     print_time_dif("dissolving doc land took ", start, time.time())
 
+    # clip geo map to area around the fault
+    start = time.time()
+    info.clipped_geo = tool.clip(info.geo_map[INPUT], info.buffered_fault, info.geo_map[OUTPUT], LOWEST_TOLERANCE)
+    print_time_dif("clipping geo map took ", start, time.time())
+
     # add rating field to output layers
     start = time.time()
     add_rating = prep_tools.list_for_tool(info)
     tool.add_field(add_rating, RATING, "SHORT")
     for f_class in add_rating:
         if f_class is info.buffered_fault:
-            tool.fill_field(f_class, RATING, FAULT_BUFFER)
+            tool.fill_ratings(f_class, RATING, FAULT_BUFFER)
         elif f_class is info.buffered_side:
-            tool.fill_field(f_class, RATING, SIDE_BUFFER)
+            tool.fill_ratings(f_class, RATING, SIDE_BUFFER)
         elif f_class is info.buffered_road:
-            tool.fill_field(f_class, RATING, ROAD_BUFFER)
+            tool.fill_ratings(f_class, RATING, ROAD_BUFFER)
         elif f_class is info.clipped_dissolved_doc:
-            tool.fill_field(f_class, RATING, DOC_LAND)
+            tool.fill_ratings(f_class, RATING, DOC_LAND)
+        elif f_class is info.clipped_geo:
+            tool.fill_geo_ratings(info.clipped_geo, info)
         else:
             raise RuntimeError("one of the classes has not had its value field updated")
     print_time_dif("adding rating fields took ", start, time.time())

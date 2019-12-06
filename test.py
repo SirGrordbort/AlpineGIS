@@ -1,3 +1,4 @@
+arcpy.GetParameterAsText(0)
 
 
 
