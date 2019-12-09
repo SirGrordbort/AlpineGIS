@@ -20,6 +20,7 @@ class Info:
         self.clipped_dissolved_doc = None
         self.unioned_layers = None
         self.clipped_geo = None
+        self.clipped_dissolved_geo = None
 
     # gets relevant info from the tool inputs in arcpro
     def get_info(self):
@@ -29,10 +30,14 @@ class Info:
 
         # information needed to build the specified buffers
         self.fault_buffer = self.get_fault_buffer(param_num)
+        self.fault_buffer_rating = arcpy.GetParameterAsText(param_num.i())
         self.side_buffer = self.get_side_buffer(param_num)
+        self.side_buffer_rating = arcpy.GetParameterAsText(param_num.i())
         self.road_buffer = self.get_road_buffer(param_num)
+        self.road_buffer_rating = arcpy.GetParameterAsText(param_num.i())
 
         self.doc_land = self.get_in_out(param_num)
+        self.doc_rating = arcpy.GetParameterAsText(param_num.i())
         self.geo_map = self.get_in_out(param_num)
         self.hard_rock_rating = arcpy.GetParameterAsText(param_num.i())
         self.soft_rock_rating = arcpy.GetParameterAsText(param_num.i())
@@ -108,7 +113,8 @@ class PrepTools:
                 rating_fields.append(fname)
         return rating_fields
 
-    def list_for_tool(self, info):
+    # list of parameters to have the rating field added to them
+    def list_for_add_field(self, info):
 
         # precondition checks
         if info.buffered_fault is None:
@@ -123,6 +129,24 @@ class PrepTools:
             raise TypeError("geo map has not been clipped")
 
         input_features = [info.buffered_fault, info.buffered_side, info.buffered_road, info.clipped_dissolved_doc, info.clipped_geo]
+        return input_features
+
+    # makes a list of input parameters for the union tool
+    def list_for_union(self, info):
+        # precondition checks
+        if info.buffered_fault is None:
+            raise TypeError("buffered_fault has not been initialised")
+        if info.buffered_side is None:
+            raise TypeError("buffered_side has not been initialised")
+        if info.buffered_road is None:
+            raise TypeError("buffered_road has not been initialised")
+        if info.clipped_dissolved_doc is None:
+            raise TypeError("doc land has not been dissolved")
+        if info.clipped_dissolved_geo is None:
+            raise TypeError("geo map has not been clipped")
+
+        input_features = [info.buffered_fault, info.buffered_side, info.buffered_road, info.clipped_dissolved_doc,
+                          info.clipped_dissolved_geo]
         return input_features
 
 
@@ -167,6 +191,7 @@ class Tool:
             else:
                 raise RuntimeError("input rock " + row[rock] + " was not in either hard or soft rock list" + str(type(row[rock])))
             u_cursor.updateRow(row)
+
 
 
     # fills a field with the sum of values from other fields within the given feature
@@ -214,8 +239,8 @@ class Tool:
     def union(self, in_features, out_feature, join_attr):
         return arcpy.Union_analysis(in_features, out_feature, join_attr)
 
-    def dissolve(self, in_features, out_feature):
-        return arcpy.Dissolve_management(in_features, out_feature)
+    def dissolve(self, in_features, out_feature, field=""):
+        return arcpy.Dissolve_management(in_features, out_feature, field)
 
 
 # a number that can be easily incremented (in place of the ++num java code)
@@ -262,11 +287,6 @@ temp = "in_memory/temp"
 # for layer rating
 RATING = "rating"
 STATIC_RATING = "static_rating"
-BEGINS_RATING = "rating%"
-FAULT_BUFFER = 10
-SIDE_BUFFER = 5
-ROAD_BUFFER = 100
-DOC_LAND = 3
 
 
 
@@ -308,31 +328,36 @@ def coordinate_program():
 
     # clip geo map to area around the fault
     start = time.time()
-    info.clipped_geo = tool.clip(info.geo_map[INPUT], info.buffered_fault, info.geo_map[OUTPUT], LOWEST_TOLERANCE)
+    info.clipped_geo = tool.clip(info.geo_map[INPUT], info.buffered_fault, temp + str(fnum.i()), LOWEST_TOLERANCE)
     print_time_dif("clipping geo map took ", start, time.time())
 
     # add rating field to output layers
     start = time.time()
-    add_rating = prep_tools.list_for_tool(info)
+    add_rating = prep_tools.list_for_add_field(info)
     tool.add_field(add_rating, RATING, "SHORT")
     for f_class in add_rating:
         if f_class is info.buffered_fault:
-            tool.fill_ratings(f_class, RATING, FAULT_BUFFER)
+            tool.fill_ratings(f_class, RATING, info.fault_buffer_rating)
         elif f_class is info.buffered_side:
-            tool.fill_ratings(f_class, RATING, SIDE_BUFFER)
+            tool.fill_ratings(f_class, RATING, info.side_buffer_rating)
         elif f_class is info.buffered_road:
-            tool.fill_ratings(f_class, RATING, ROAD_BUFFER)
+            tool.fill_ratings(f_class, RATING, info.road_buffer_rating)
         elif f_class is info.clipped_dissolved_doc:
-            tool.fill_ratings(f_class, RATING, DOC_LAND)
+            tool.fill_ratings(f_class, RATING, info.doc_rating)
         elif f_class is info.clipped_geo:
             tool.fill_geo_ratings(info.clipped_geo, info)
         else:
             raise RuntimeError("one of the classes has not had its value field updated")
     print_time_dif("adding rating fields took ", start, time.time())
 
+    # dissolve lithostratigraphy based on hard and soft rock
+    start = time.time()
+    info.clipped_dissolved_geo = tool.dissolve(info.clipped_geo, info.geo_map[OUTPUT], RATING)
+    print_time_dif("dissolving lithostratigraphy took ", start, time.time())
+
     # join all relevant layers with union
     start = time.time()
-    union_input = prep_tools.list_for_tool(info)
+    union_input = prep_tools.list_for_union(info)
     info.unioned_layers = tool.union(union_input, info.union_output, "")
     print_time_dif("union of all layers took ", start, time.time())
 

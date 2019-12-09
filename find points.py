@@ -4,7 +4,7 @@ def find_nearest(poly, points):
     arcpy.Near_analysis(points, poly[SHAPE],"","LOCATION","","")
 
 def get_total_rating(poly, point):
-    poly[TOTAL] = int(poly[STATIC] + point[NEAR_DIST]*-500/300000+10) #FIXME
+    poly[TOTAL] = int(poly[STATIC] + (point[NEAR_DIST]*-500/300000+10)) #FIXME
 
 
 
