@@ -50,7 +50,8 @@ class Info:
         return [arcpy.GetParameterAsText(param_num.i()), arcpy.GetParameterAsText(param_num.i())]
 
     def get_fault_buffer(self, param_num):
-        buffer_params = self.get_params(param_num, 7)
+        buffer_params = self.get_params(param_num, 3)
+        self.add_empty_strings(buffer_params, 3, 7)
         buffer_params[METHOD] = ALL
         return buffer_params
 

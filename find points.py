@@ -1,4 +1,9 @@
 import arcpy
+import math
+import numpy as np
+import matplotlib.mlab as mlab
+import matplotlib.pyplot as plt
+
 # a number that can be easily incremented (in place of the ++num java code)
 class IncrementingNumber:
     def __init__(self, num):
@@ -16,8 +21,9 @@ def find_nearest(poly, points):
     arcpy.Near_analysis(points, poly[SHAPE],"","LOCATION","","")
 
 def get_total_rating(poly, point):
-    poly[TOTAL] = int(poly[STATIC] + (point[NEAR_DIST]*-500/300000+10)) #FIXME
-
+        poly[TOTAL] = int(poly[STATIC] + distance_scale_factor*(point[NEAR_DIST]*-10/average_point_spacing+10))
+# gets a new set of points where the ideal points are halfway between the ith and ith +2 points also returns the total
+# distance difference
 def get_new_initial_points(last_best):
     prev_list = []
     new_list = []
@@ -28,13 +34,50 @@ def get_new_initial_points(last_best):
     # makes the new list of initial points from the midpoints of the previous best points
     # it is important that a left right or right left order is maintained otherwise the midpoints will be incorrectly
     # calculated on the next iteration
-    new_list.append(prev_list[0])  # FIXME shape might have one more step before it is a tuple
+    new_list.append(prev_list[0])
     for i in range(0, len(prev_list)-2):
         new_list.append(get_midpoint(prev_list[i], prev_list[i+2]))
     new_list.append(prev_list[len(prev_list)-1])
     new_best = arcpy.CopyFeatures_management(new_list, temp + str(fnum.i()))
 
     return new_best
+
+# gets sum of the distances of two iterations of points
+def get_total_distance(pnts1, pnts2):
+    dist = 0
+    for i in range(0, len(pnts1)):
+        dist += get_distance(pnts1[i], pnts2[i])
+    return dist
+
+# returns a list of how much each point has changed between iterations
+def get_distance_change(pnts1, pnts2):
+    dist = []
+    for i in range(0, len(pnts1)):
+        dist.append(get_distance(pnts1[i], pnts2[i]))
+    return dist
+
+# returns the total change in change in distance over iterations. This should give an indication of whether the points
+# are now oscillating over the iterations
+def get_distance_change_difference(dist1, dist2):
+    change = 0
+    for i in range(0, len(dist1)):
+            change += abs(dist1[i]-dist2[i])
+    return change
+
+#returns a list of distances between points
+def get_point_seperations(points):
+    dists = []
+    for i in range(0, len(points)-1):
+        dists.append(get_distance(points[i], points[i+1]))
+    return dists
+
+# returns distance between two points
+def get_distance(point1, point2):
+    x_dist = abs(point1.firstPoint.X-point2.firstPoint.X)
+    y_dist = abs(point1.firstPoint.Y-point2.firstPoint.Y)
+    distance = math.sqrt(x_dist**2 + y_dist**2)
+    return distance
+
 
 def tuple_to_point(tuple):
     p = arcpy.Point(tuple.X, tuple[1])
@@ -46,58 +89,136 @@ def get_midpoint(point1, point2):
     p = arcpy.Point(x,y)
     return arcpy.PointGeometry(p)
 
-SHAPE = 0
-NEAR_DIST = 1
-NEAR_X = 2
-NEAR_Y = 3
-BEST_X = 4
-BEST_Y = 5
-BEST_RATING = 6
-STATIC = 1
-TOTAL = 2
-temp = "temp"
-# tool inputs and outputs
-points = arcpy.GetParameterAsText(0)
-polys = arcpy.GetParameterAsText(1)
-final_points = arcpy.GetParameterAsText(2)
-fnum = IncrementingNumber(-1)
-current_best_points = None
-for x in range(0,3):
-    # add a total rating field to be filled later
-    arcpy.AddField_management(polys, "tot_score", "SHORT")
-    # for storing the current best value in each point
-    arcpy.AddField_management(points, "BEST_X", "DOUBLE")
-    arcpy.AddField_management(points, "BEST_Y", "DOUBLE")
-    arcpy.AddField_management(points, "BEST_SCORE", "DOUBLE")
-    good_points = []
-    search_poly = arcpy.da.UpdateCursor(polys, ("SHAPE@", "static_rating", "tot_score"))
-    for poly in search_poly:
-        find_nearest(poly, points)
-        search_point = arcpy.da.UpdateCursor(points, ("SHAPE@", "NEAR_DIST", "NEAR_X", "NEAR_Y", "BEST_X", "BEST_Y", "BEST_SCORE"))
-        for point in search_point:
-            get_total_rating(poly, point)
-            search_poly.updateRow(poly)
-            if point[BEST_X] is None:
-                point[BEST_X] = point[NEAR_X]
-                point[BEST_Y] = point[NEAR_Y]
-                point[BEST_RATING] = poly[TOTAL]
-                search_point.updateRow(point)
-                best_rating = poly[TOTAL]
-            elif poly[TOTAL] > point[BEST_RATING]:
-                point[BEST_X] = point[NEAR_X]
-                point[BEST_Y] = point[NEAR_Y]
-                point[BEST_RATING] = poly[TOTAL]
-                search_point.updateRow(point)
+def get_average_point_spacing(points):
+    search = arcpy.da.SearchCursor(points, ("SHAPE@",))
+    point_geos = []
+    for pnt in search:
+        point_geos.append(pnt[0])
+    pnts = get_point_seperations(point_geos)
+    total_dist =  sum(pnts)
+    return total_dist/len(pnts)
 
-    best_points = arcpy.da.SearchCursor(points, ("BEST_X", "BEST_Y"))
-    for best_point in best_points:
-        pnt = arcpy.Point(best_point[0], best_point[1])
-        good_points.append(arcpy.PointGeometry(pnt))
+try:
+    SHAPE = 0
+    NEAR_DIST = 1
+    NEAR_X = 2
+    NEAR_Y = 3
+    BEST_X = 4
+    BEST_Y = 5
+    BEST_RATING = 6
+    STATIC_PNT_RATING = 7
+    STATIC = 1
+    TOTAL = 2
+    temp = "in_memory/temp"
+    # tool inputs and outputs
+    fnum = IncrementingNumber(-1)
+    param_num = IncrementingNumber(-1)
+    points = arcpy.GetParameterAsText(param_num.i())
+    polys = arcpy.GetParameterAsText(param_num.i())
+    distance_scale_factor = arcpy.GetParameter(param_num.i())
+    iteration = arcpy.GetParameter(param_num.i())
+    iteration_end_value = arcpy.GetParameter(param_num.i())
+    bin_num = arcpy.GetParameter(param_num.i())
+    final_points = arcpy.GetParameterAsText(param_num.i())
 
 
-    current_best_points = arcpy.CopyFeatures_management(good_points, temp + str(fnum.i()))
-    points = get_new_initial_points(current_best_points)
+    average_point_spacing = get_average_point_spacing(points)
+    current_best_points = None
+    dist = 1
 
-final_points = current_best_points
-arcpy.Delete_management("in_memory")
+
+    dist_dif = iteration_end_value +1
+
+    # holds a list of change in change in distances for determining whether the points are oscillating
+    old_dists = None
+    rating = 0
+    i = 1
+    old_best = None
+    while dist_dif > iteration_end_value:
+        # add a total rating field to be filled later
+        # deleting the field ensures the field is empty before the program begins
+        arcpy.DeleteField_management(polys, "tot_score")
+        arcpy.AddField_management(polys, "tot_score", "SHORT")
+        # for storing the current best value in each point
+        arcpy.DeleteField_management(polys, "BEST_X")
+        arcpy.AddField_management(points, "BEST_X", "DOUBLE")
+        arcpy.DeleteField_management(polys, "BEST_Y")
+        arcpy.AddField_management(points, "BEST_Y", "DOUBLE")
+        arcpy.DeleteField_management(polys, "BEST_SCORE")
+        arcpy.AddField_management(points, "BEST_SCORE", "DOUBLE")
+        arcpy.DeleteField_management(polys, "stat_rate")
+        arcpy.AddField_management(points, "stat_rate", "DOUBLE")
+        good_points = []
+        search_poly = arcpy.da.UpdateCursor(polys, ("SHAPE@", "static_rating", "tot_score"))
+        for poly in search_poly:
+            find_nearest(poly, points)
+            search_point = arcpy.da.UpdateCursor(points, ("SHAPE@", "NEAR_DIST", "NEAR_X", "NEAR_Y", "BEST_X", "BEST_Y", "BEST_SCORE", "stat_rate"))
+            for point in search_point:
+                get_total_rating(poly, point)
+                search_poly.updateRow(poly)
+                if point[BEST_X] is None:
+                    point[BEST_X] = point[NEAR_X]
+                    point[BEST_Y] = point[NEAR_Y]
+                    point[BEST_Y] = point[NEAR_Y]
+                    point[BEST_RATING] = poly[TOTAL]
+                    point[STATIC_PNT_RATING] = poly[STATIC]
+                    search_point.updateRow(point)
+                    best_rating = poly[TOTAL]
+                elif poly[TOTAL] > point[BEST_RATING]:
+                    point[BEST_X] = point[NEAR_X]
+                    point[BEST_Y] = point[NEAR_Y]
+                    point[BEST_RATING] = poly[TOTAL]
+                    point[STATIC_PNT_RATING] = poly[STATIC]
+                    search_point.updateRow(point)
+        best_points = arcpy.da.SearchCursor(points, ("BEST_X", "BEST_Y", "stat_rate"))
+        rating = 0
+        for best_point in best_points:
+
+            # calculates total static rating
+            rating += best_point[2]
+
+            # makes a list of the best points for this iteration
+            pnt = arcpy.Point(best_point[0], best_point[1])
+            good_points.append(arcpy.PointGeometry(pnt))
+
+
+
+        # alternative iteration end checker
+        new_dists = None
+        if old_best is not None:
+            dist = get_total_distance(old_best, good_points)
+            new_dists = get_distance_change(old_best, good_points)
+        if old_dists is not None:
+            dist_dif = get_distance_change_difference(old_dists, new_dists)
+        old_dists = new_dists
+        old_best = good_points
+
+        # determines if the program with run in iteration mode or not
+        if not iteration:
+            dist_dif = 0
+
+        # makes a feature class from the best current points
+        if dist_dif < iteration_end_value:
+            current_best_points = arcpy.CopyFeatures_management(good_points, final_points)
+        else:
+            current_best_points = arcpy.CopyFeatures_management(good_points, temp + str(fnum.i()))
+            new_ideal_points = get_new_initial_points(current_best_points)
+            points = new_ideal_points
+
+        arcpy.AddMessage("output stats for iteration " + str(i))
+        arcpy.AddMessage("--------------------------------")
+        arcpy.AddMessage("rating: " + str(rating))
+        arcpy.AddMessage("sum of distance change: " + str(dist))
+        arcpy.AddMessage("sum of change in change in distance: " + str(dist_dif))
+
+        i += 1
+
+
+    if old_best is not None:
+        final_distance_data = get_point_seperations(old_best)
+        num_bins = bin_num
+        n, bins, patches = plt.hist(final_distance_data, num_bins, facecolor='blue', alpha=0.5)
+        plt.show()
+finally:
+    arcpy.Delete_management("in_memory")
 

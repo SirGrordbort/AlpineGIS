@@ -1,33 +1,26 @@
 import arcpy
+import math
+import numpy as np
+import matplotlib.mlab as mlab
+import matplotlib.pyplot as plt
 
-def get_new_initial_points(last_best):
-    prev_list = []
-    new_list = []
-    prev_points = arcpy.da.SearchCursor(last_best, ("SHAPE@",))
-    for point in prev_points:
-        prev_list.append(point[0])
+input = arcpy.GetParameterAsText(0)
+def get_distance(point1, point2):
+    x_dist = abs(point1.firstPoint.X-point2.firstPoint.X)
+    y_dist = abs(point1.firstPoint.Y-point2.firstPoint.Y)
+    distance = math.sqrt(x_dist**2 + y_dist**2)
+    arcpy.AddMessage("distance " + str(distance))
+    return distance
 
-    # makes the new list of initial points from the midpoints of the previous best points
-    # it is important that a left right or right left order is maintained otherwise the midpoints will be incorrectly
-    # calculated on the next iteration
-    new_list.append(prev_list[0])  # FIXME shape might have one more step before it is a tuple
-    for i in range(0, len(prev_list)-2):
-        new_list.append(get_midpoint(prev_list[i], prev_list[i+2]))
-    new_list.append(prev_list[len(prev_list)-1])
-    new_best = arcpy.CopyFeatures_management(new_list, out)
-    return new_best
-
-def tuple_to_point(tuple):
-    p = arcpy.Point(tuple.X, tuple[1])
-    return arcpy.PointGeometry(p)
-
-def get_midpoint(point1, point2):
-    x = (point1.firstPoint.X + point2.firstPoint.X)/2
-    y = (point1.firstPoint.Y + point2.firstPoint.Y)/2
-    p = arcpy.Point(x,y)
-    return arcpy.PointGeometry(p)
-
-
-in_points = arcpy.GetParameterAsText(0)
-out = arcpy.GetParameterAsText(1)
-get_new_initial_points(in_points)
+def get_final_distances(points):
+    dists = []
+    for i in range(0, len(points)-1):
+        dists.append(get_distance(points[i], points[i+1]))
+    return dists
+points = []
+for i in arcpy.da.SearchCursor(input, ("SHAPE@", )):
+    points.append(i[0])
+final_distance_data = get_final_distances(points)
+num_bins = 5
+n, bins, patches = plt.hist(final_distance_data, num_bins, facecolor='blue', alpha=0.5)
+plt.show()
