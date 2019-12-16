@@ -161,6 +161,7 @@ class Tool:
     # adds a field to a list of feature classes
     def add_field(self, f_c_list, f_name, f_type):
         for f_class in f_c_list:
+            arcpy.AddMessage("added field")
             arcpy.AddField_management(f_class, f_name, f_type)
 
         # post condition check
@@ -358,7 +359,7 @@ def coordinate_program():
     # join all relevant layers with union
     start = time.time()
     union_input = prep_tools.list_for_union(info)
-    info.unioned_layers = tool.union(union_input, info.union_output, "")
+    info.unioned_layers = tool.union(union_input, temp + str(fnum.i()), "")
     print_time_dif("union of all layers took ", start, time.time())
 
     # add total static rating to union layer
@@ -366,6 +367,7 @@ def coordinate_program():
     tool.add_field(u_layers, STATIC_RATING, "SHORT")
     ratings = prep_tools.get_rating_fields(info.unioned_layers)
     tool.fill_field_from_sum(info.unioned_layers, STATIC_RATING, ratings)
+    tool.dissolve(info.unioned_layers, info.union_output)
 
     start = time.time()
     arcpy.Delete_management("in_memory")
