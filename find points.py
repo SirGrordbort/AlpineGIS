@@ -150,7 +150,7 @@ try:
         arcpy.DeleteField_management(polys, "stat_rate")
         arcpy.AddField_management(points, "stat_rate", "DOUBLE")
         good_points = []
-        search_poly = arcpy.da.UpdateCursor(polys, ("SHAPE@", "static_rating", "tot_score"))
+        search_poly = arcpy.da.UpdateCursor(polys, ("SHAPE@", "stat_rate", "tot_score"))
         for poly in search_poly:
             find_nearest(poly, points)
             search_point = arcpy.da.UpdateCursor(points, ("SHAPE@", "NEAR_DIST", "NEAR_X", "NEAR_Y", "BEST_X", "BEST_Y", "BEST_SCORE", "stat_rate"))
@@ -219,6 +219,8 @@ try:
         final_distance_data = get_point_seperations(old_best)
         num_bins = bin_num
         n, bins, patches = plt.hist(final_distance_data, num_bins, facecolor='blue', alpha=0.5)
+        plt.xlabel('point separation (m)')
+        plt.ylabel('count')
         plt.show()
 finally:
     arcpy.Delete_management("in_memory")

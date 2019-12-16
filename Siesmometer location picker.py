@@ -286,7 +286,7 @@ temp = "in_memory/temp"
 
 # for layer rating
 RATING = "rating"
-STATIC_RATING = "static_rating"
+STATIC_RATING = "stat_rate"
 
 
 
