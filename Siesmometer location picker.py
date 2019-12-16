@@ -183,7 +183,6 @@ class Tool:
             # apparently rows with no rock type exist, not sure why
             if row[rock] == " ":
                 row[rating] = no_rock
-                arcpy.AddMessage("no rock found")
 
             elif row[rock] in info.soft_rocks:
                 row[rating] = info.soft_rock_rating

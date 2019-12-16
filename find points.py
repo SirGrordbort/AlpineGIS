@@ -123,6 +123,7 @@ try:
 
 
     average_point_spacing = get_average_point_spacing(points)
+    arcpy.AddMessage("Average point spacing: " + str(average_point_spacing))
     current_best_points = None
     dist = 1
 
