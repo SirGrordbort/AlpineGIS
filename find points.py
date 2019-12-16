@@ -141,13 +141,13 @@ try:
         arcpy.DeleteField_management(polys, "tot_score")
         arcpy.AddField_management(polys, "tot_score", "SHORT")
         # for storing the current best value in each point
-        arcpy.DeleteField_management(polys, "BEST_X")
+        arcpy.DeleteField_management(points, "BEST_X")
         arcpy.AddField_management(points, "BEST_X", "DOUBLE")
-        arcpy.DeleteField_management(polys, "BEST_Y")
+        arcpy.DeleteField_management(points, "BEST_Y")
         arcpy.AddField_management(points, "BEST_Y", "DOUBLE")
-        arcpy.DeleteField_management(polys, "BEST_SCORE")
+        arcpy.DeleteField_management(points, "BEST_SCORE")
         arcpy.AddField_management(points, "BEST_SCORE", "DOUBLE")
-        arcpy.DeleteField_management(polys, "stat_rate")
+        arcpy.DeleteField_management(points, "stat_rate")
         arcpy.AddField_management(points, "stat_rate", "DOUBLE")
         good_points = []
         search_poly = arcpy.da.UpdateCursor(polys, ("SHAPE@", "stat_rate", "tot_score"))

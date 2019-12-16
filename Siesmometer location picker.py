@@ -359,16 +359,14 @@ def coordinate_program():
     # join all relevant layers with union
     start = time.time()
     union_input = prep_tools.list_for_union(info)
-    info.unioned_layers = tool.union(union_input, temp + str(fnum.i()), "")
+    info.unioned_layers = tool.union(union_input, info.union_output, "")
     print_time_dif("union of all layers took ", start, time.time())
 
     # add total static rating to union layer
-    u_layers = [info.unioned_layers]
+    u_layers = [info.union_output]
     tool.add_field(u_layers, STATIC_RATING, "SHORT")
-    ratings = prep_tools.get_rating_fields(info.unioned_layers)
-    tool.fill_field_from_sum(info.unioned_layers, STATIC_RATING, ratings)
-    tool.dissolve(info.unioned_layers, info.union_output)
-
+    ratings = prep_tools.get_rating_fields(info.union_output)
+    tool.fill_field_from_sum(info.union_output, STATIC_RATING, ratings)
     start = time.time()
     arcpy.Delete_management("in_memory")
     print_time_dif("clearing memory took ", start, time.time())
