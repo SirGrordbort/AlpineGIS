@@ -20,8 +20,8 @@ class IncrementingNumber:
 def find_nearest(poly, points):
     arcpy.Near_analysis(points, poly[SHAPE],"","LOCATION","","")
 
-def get_total_rating(poly, point):
-        poly[TOTAL] = int(poly[STATIC] + distance_scale_factor*(point[NEAR_DIST]*-10/average_point_spacing+10))
+def get_total_rating(poly, point, spacing):
+        poly[TOTAL] = int(poly[STATIC] + distance_scale_factor*((point[NEAR_DIST]*-10/spacing)+10))
 # gets a new set of points where the ideal points are halfway between the ith and ith +2 points also returns the total
 # distance difference
 def get_new_initial_points(last_best):
@@ -89,14 +89,7 @@ def get_midpoint(point1, point2):
     p = arcpy.Point(x,y)
     return arcpy.PointGeometry(p)
 
-def get_average_point_spacing(points):
-    search = arcpy.da.SearchCursor(points, ("SHAPE@",))
-    point_geos = []
-    for pnt in search:
-        point_geos.append(pnt[0])
-    pnts = get_point_seperations(point_geos)
-    total_dist =  sum(pnts)
-    return total_dist/len(pnts)
+
 
 try:
     SHAPE = 0
@@ -110,10 +103,13 @@ try:
     STATIC = 1
     TOTAL = 2
     temp = "in_memory/temp"
+    PERCENTAGE = "PERCENTAGE"
+    END_POINTS = "END_POINTS"
     # tool inputs and outputs
     fnum = IncrementingNumber(-1)
     param_num = IncrementingNumber(-1)
-    points = arcpy.GetParameterAsText(param_num.i())
+    num_points = arcpy.GetParameter(param_num.i())
+    fault = arcpy.GetParameterAsText(param_num.i())
     polys = arcpy.GetParameterAsText(param_num.i())
     distance_scale_factor = arcpy.GetParameter(param_num.i())
     iteration = arcpy.GetParameter(param_num.i())
@@ -121,9 +117,20 @@ try:
     bin_num = arcpy.GetParameter(param_num.i())
     final_points = arcpy.GetParameterAsText(param_num.i())
 
+    search_4_len = arcpy.da.SearchCursor(fault, ("Shape_Length",))
+    fault_length = None
+    for length in search_4_len:
+        fault_length = length[0]
+        break
+    spacing = fault_length / (num_points - 2)
+    points = arcpy.GeneratePointsAlongLines_management(fault, temp + str(fnum.i()), 'DISTANCE', spacing, "", 'END_POINTS')
+    last_point = str(num_points + 1)
+    expression = "OBJECTID = " + last_point
+    arcpy.AddMessage(expression)
+    to_delete = arcpy.SelectLayerByAttribute_management(points, "NEW_SELECTION", expression)
+    arcpy.DeleteRows_management(to_delete) #FIXME test me
 
-    average_point_spacing = get_average_point_spacing(points)
-    arcpy.AddMessage("Average point spacing: " + str(average_point_spacing))
+    arcpy.AddMessage("Average point spacing: " + str(spacing))
     current_best_points = None
     dist = 1
 
@@ -155,7 +162,7 @@ try:
             find_nearest(poly, points)
             search_point = arcpy.da.UpdateCursor(points, ("SHAPE@", "NEAR_DIST", "NEAR_X", "NEAR_Y", "BEST_X", "BEST_Y", "BEST_SCORE", "stat_rate"))
             for point in search_point:
-                get_total_rating(poly, point)
+                get_total_rating(poly, point,spacing)
                 search_poly.updateRow(poly)
                 if point[BEST_X] is None:
                     point[BEST_X] = point[NEAR_X]

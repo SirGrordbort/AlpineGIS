@@ -1,26 +1,17 @@
 import arcpy
-import math
-import numpy as np
-import matplotlib.mlab as mlab
-import matplotlib.pyplot as plt
-
-input = arcpy.GetParameterAsText(0)
-def get_distance(point1, point2):
-    x_dist = abs(point1.firstPoint.X-point2.firstPoint.X)
-    y_dist = abs(point1.firstPoint.Y-point2.firstPoint.Y)
-    distance = math.sqrt(x_dist**2 + y_dist**2)
-    arcpy.AddMessage("distance " + str(distance))
-    return distance
-
-def get_final_distances(points):
-    dists = []
-    for i in range(0, len(points)-1):
-        dists.append(get_distance(points[i], points[i+1]))
-    return dists
-points = []
-for i in arcpy.da.SearchCursor(input, ("SHAPE@", )):
-    points.append(i[0])
-final_distance_data = get_final_distances(points)
-num_bins = 5
-n, bins, patches = plt.hist(final_distance_data, num_bins, facecolor='blue', alpha=0.5)
-plt.show()
+fault =arcpy.GetParameterAsText(0)
+num_pnts = arcpy.GetParameter(1)
+points = arcpy.GetParameterAsText(2)
+search_4_len = arcpy.da.SearchCursor(fault, ("Shape_Length",))
+fault_length = None
+for length in search_4_len:
+    fault_length = length[0]
+    break
+spacing = fault_length / (num_pnts - 1)
+percentage = 100/(num_pnts)
+points = arcpy.GeneratePointsAlongLines_management(fault, points, 'DISTANCE', spacing, "", 'END_POINTS')
+last_point = str(num_pnts +1)
+expression = "OBJECTID = " + last_point
+arcpy.AddMessage(expression)
+to_delete = arcpy.SelectLayerByAttribute_management(points, "NEW_SELECTION", expression)
+arcpy.DeleteRows_management(to_delete)
