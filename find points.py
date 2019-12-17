@@ -122,8 +122,9 @@ try:
     for length in search_4_len:
         fault_length = length[0]
         break
-    spacing = fault_length / (num_points - 2)
-    points = arcpy.GeneratePointsAlongLines_management(fault, temp + str(fnum.i()), 'DISTANCE', spacing, "", 'END_POINTS')
+    spacing = fault_length / (num_points - 1)
+    points = None
+    points = arcpy.GeneratePointsAlongLines_management(fault, points, 'DISTANCE', spacing, "", 'END_POINTS')
     last_point = str(num_points + 1)
     expression = "OBJECTID = " + last_point
     arcpy.AddMessage(expression)
@@ -156,6 +157,17 @@ try:
         arcpy.AddField_management(points, "BEST_SCORE", "DOUBLE")
         arcpy.DeleteField_management(points, "stat_rate")
         arcpy.AddField_management(points, "stat_rate", "DOUBLE")
+
+        arcpy.DeleteField_management(points, "rock_type")
+        arcpy.AddField_management(points, "rock_type", "TEXT")
+        arcpy.DeleteField_management(points, "fault_side")
+        arcpy.AddField_management(points, "fault_side", "TEXT")
+        arcpy.DeleteField_management(points, "dist_to_rd")
+        arcpy.AddField_management(points, "dist_to_rd", "DOUBLE")
+        arcpy.DeleteField_management(points, "dist_2_flt")
+        arcpy.AddField_management(points, "dist_2_flt", "DOUBLE")
+        arcpy.DeleteField_management(points, "doc_land")
+        arcpy.AddField_management(points, "doc_land", "TEXT")
         good_points = []
         search_poly = arcpy.da.UpdateCursor(polys, ("SHAPE@", "stat_rate", "tot_score"))
         for poly in search_poly:
