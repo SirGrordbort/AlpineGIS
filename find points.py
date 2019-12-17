@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.mlab as mlab
 import matplotlib.pyplot as plt
 
+
 # a number that can be easily incremented (in place of the ++num java code)
 class IncrementingNumber:
     def __init__(self, num):
@@ -17,11 +18,15 @@ class IncrementingNumber:
     def get(self):
         return self.num
 
+
 def find_nearest(poly, points):
-    arcpy.Near_analysis(points, poly[SHAPE],"","LOCATION","","")
+    arcpy.Near_analysis(points, poly[PolyEnum.SHAPE], "", "LOCATION", "", "")
+
 
 def get_total_rating(poly, point, spacing):
-        poly[TOTAL] = int(poly[STATIC] + distance_scale_factor*((point[NEAR_DIST]*-10/spacing)+10))
+    poly[PolyEnum.TOTAL] = int(poly[PolyEnum.STATIC] + distance_scale_factor * ((point[PointEnum.NEAR_DIST] * -10 / spacing) + 10))
+
+
 # gets a new set of points where the ideal points are halfway between the ith and ith +2 points also returns the total
 # distance difference
 def get_new_initial_points(last_best):
@@ -35,12 +40,13 @@ def get_new_initial_points(last_best):
     # it is important that a left right or right left order is maintained otherwise the midpoints will be incorrectly
     # calculated on the next iteration
     new_list.append(prev_list[0])
-    for i in range(0, len(prev_list)-2):
-        new_list.append(get_midpoint(prev_list[i], prev_list[i+2]))
-    new_list.append(prev_list[len(prev_list)-1])
+    for i in range(0, len(prev_list) - 2):
+        new_list.append(get_midpoint(prev_list[i], prev_list[i + 2]))
+    new_list.append(prev_list[len(prev_list) - 1])
     new_best = arcpy.CopyFeatures_management(new_list, temp + str(fnum.i()))
 
     return new_best
+
 
 # gets sum of the distances of two iterations of points
 def get_total_distance(pnts1, pnts2):
@@ -49,6 +55,7 @@ def get_total_distance(pnts1, pnts2):
         dist += get_distance(pnts1[i], pnts2[i])
     return dist
 
+
 # returns a list of how much each point has changed between iterations
 def get_distance_change(pnts1, pnts2):
     dist = []
@@ -56,26 +63,29 @@ def get_distance_change(pnts1, pnts2):
         dist.append(get_distance(pnts1[i], pnts2[i]))
     return dist
 
+
 # returns the total change in change in distance over iterations. This should give an indication of whether the points
 # are now oscillating over the iterations
 def get_distance_change_difference(dist1, dist2):
     change = 0
     for i in range(0, len(dist1)):
-            change += abs(dist1[i]-dist2[i])
+        change += abs(dist1[i] - dist2[i])
     return change
 
-#returns a list of distances between points
+
+# returns a list of distances between points
 def get_point_seperations(points):
     dists = []
-    for i in range(0, len(points)-1):
-        dists.append(get_distance(points[i], points[i+1]))
+    for i in range(0, len(points) - 1):
+        dists.append(get_distance(points[i], points[i + 1]))
     return dists
+
 
 # returns distance between two points
 def get_distance(point1, point2):
-    x_dist = abs(point1.firstPoint.X-point2.firstPoint.X)
-    y_dist = abs(point1.firstPoint.Y-point2.firstPoint.Y)
-    distance = math.sqrt(x_dist**2 + y_dist**2)
+    x_dist = abs(point1.firstPoint.X - point2.firstPoint.X)
+    y_dist = abs(point1.firstPoint.Y - point2.firstPoint.Y)
+    distance = math.sqrt(x_dist ** 2 + y_dist ** 2)
     return distance
 
 
@@ -83,25 +93,58 @@ def tuple_to_point(tuple):
     p = arcpy.Point(tuple.X, tuple[1])
     return arcpy.PointGeometry(p)
 
+
 def get_midpoint(point1, point2):
-    x = (point1.firstPoint.X + point2.firstPoint.X)/2
-    y = (point1.firstPoint.Y + point2.firstPoint.Y)/2
-    p = arcpy.Point(x,y)
+    x = (point1.firstPoint.X + point2.firstPoint.X) / 2
+    y = (point1.firstPoint.Y + point2.firstPoint.Y) / 2
+    p = arcpy.Point(x, y)
     return arcpy.PointGeometry(p)
 
 
+def info_to_point(point, poly, roads, fault):
+    point[PointEnum.Best_X] = point[PointEnum.NEAR_X]
+    point[PointEnum.BEST_Y] = point[PointEnum.NEAR_Y]
+    point[PointEnum.BEST_RATING] = poly[PolyEnum.TOTAL]
+    point[PointEnum.STATIC] = poly[PolyEnum.STATIC]
+    point[PointEnum.ROCK_TYPE] = poly[PolyEnum.ROCK_TYPE]
+    point[PointEnum.FAULT_SIDE] = poly[PolyEnum.FAULT_SIDE]
+    point[PointEnum.DOC_LAND] = poly[PolyEnum.DOC_LAND]
+    point[PointEnum.DIST_2_RD] = get_dist_2_feature(roads, point)
+    point[PointEnum.DIST_2_FLT] = get_dist_2_feature(fault, point)
+    search_point.updateRow(point)
+
+def get_dist_2_feature(feature, pnt):
+    arcpy.Near_analysis(feature, pnt) #FIXME if this doesnt work try inputting just the shape
+    near_dist = arcpy.da.SearchCursor(feature, ("NEAR_DIST",))
+    return near_dist.next()[0]
 
 try:
-    SHAPE = 0
-    NEAR_DIST = 1
-    NEAR_X = 2
-    NEAR_Y = 3
-    BEST_X = 4
-    BEST_Y = 5
-    BEST_RATING = 6
-    STATIC_PNT_RATING = 7
-    STATIC = 1
-    TOTAL = 2
+    class PolyEnum:
+        def __init__(self):
+            self.SHAPE = 0
+            self.STATIC = 1
+            self.TOTAL = 2
+            self.ROCK_TYPE = 3
+            self.FAULT_SIDE = 4
+            self.DOC_LAND = 5
+    class PointEnum:
+        def __init__(self):
+            self.SHAPE = 0
+            self.NEAR_DIST = 1
+            self.NEAR_X = 2
+            self.NEAR_Y = 3
+            self.BEST_X = 4
+            self.BEST_Y = 5
+            self.BEST_RATING = 6
+            self.STATIC = 7
+            self.ROCK_TYPE = 8
+            self.FAULT_SIDE = 9
+            self.DOC_LAND = 10
+            self.DIST_2_RD = 11
+            self.DIST_2_FLT = 12
+
+    PointEnum = PointEnum()
+    PolyEnum = PolyEnum()
     temp = "in_memory/temp"
     PERCENTAGE = "PERCENTAGE"
     END_POINTS = "END_POINTS"
@@ -110,6 +153,7 @@ try:
     param_num = IncrementingNumber(-1)
     num_points = arcpy.GetParameter(param_num.i())
     fault = arcpy.GetParameterAsText(param_num.i())
+    roads = arcpy.GetParameterAsText(param_num.i()) #FIXME add me to the tool
     polys = arcpy.GetParameterAsText(param_num.i())
     distance_scale_factor = arcpy.GetParameter(param_num.i())
     iteration = arcpy.GetParameter(param_num.i())
@@ -129,14 +173,13 @@ try:
     expression = "OBJECTID = " + last_point
     arcpy.AddMessage(expression)
     to_delete = arcpy.SelectLayerByAttribute_management(points, "NEW_SELECTION", expression)
-    arcpy.DeleteRows_management(to_delete) #FIXME test me
+    arcpy.DeleteRows_management(to_delete)  # FIXME test me
 
     arcpy.AddMessage("Average point spacing: " + str(spacing))
     current_best_points = None
     dist = 1
 
-
-    dist_dif = iteration_end_value +1
+    dist_dif = iteration_end_value + 1
 
     # holds a list of change in change in distances for determining whether the points are oscillating
     old_dists = None
@@ -158,50 +201,44 @@ try:
         arcpy.DeleteField_management(points, "stat_rate")
         arcpy.AddField_management(points, "stat_rate", "DOUBLE")
 
+        # adds the information fields to the output attribute table
         arcpy.DeleteField_management(points, "rock_type")
         arcpy.AddField_management(points, "rock_type", "TEXT")
         arcpy.DeleteField_management(points, "fault_side")
         arcpy.AddField_management(points, "fault_side", "TEXT")
-        arcpy.DeleteField_management(points, "dist_to_rd")
-        arcpy.AddField_management(points, "dist_to_rd", "DOUBLE")
-        arcpy.DeleteField_management(points, "dist_2_flt")
-        arcpy.AddField_management(points, "dist_2_flt", "DOUBLE")
         arcpy.DeleteField_management(points, "doc_land")
         arcpy.AddField_management(points, "doc_land", "TEXT")
+        arcpy.DeleteField_management(points, "dist_to_rd")
+        arcpy.AddField_management(points, "dist_2_rd", "DOUBLE")
+        arcpy.DeleteField_management(points, "dist_2_flt")
+        arcpy.AddField_management(points, "dist_2_flt", "DOUBLE")
+
+
         good_points = []
-        search_poly = arcpy.da.UpdateCursor(polys, ("SHAPE@", "stat_rate", "tot_score"))
+        search_poly = arcpy.da.UpdateCursor(polys,
+                                            ("SHAPE@", "stat_rate", "tot_score", "rock_type", "fault side", "doc_land"))
         for poly in search_poly:
             find_nearest(poly, points)
-            search_point = arcpy.da.UpdateCursor(points, ("SHAPE@", "NEAR_DIST", "NEAR_X", "NEAR_Y", "BEST_X", "BEST_Y", "BEST_SCORE", "stat_rate"))
+            search_point = arcpy.da.UpdateCursor(points, (
+                "SHAPE@", "NEAR_DIST", "NEAR_X", "NEAR_Y", "BEST_X", "BEST_Y", "BEST_SCORE", "stat_rate", "rock_type",
+                "fault side", "doc_land", "dist_2_rd", "dist_2_flt"))
             for point in search_point:
-                get_total_rating(poly, point,spacing)
+                get_total_rating(poly, point, spacing)
                 search_poly.updateRow(poly)
-                if point[BEST_X] is None:
-                    point[BEST_X] = point[NEAR_X]
-                    point[BEST_Y] = point[NEAR_Y]
-                    point[BEST_Y] = point[NEAR_Y]
-                    point[BEST_RATING] = poly[TOTAL]
-                    point[STATIC_PNT_RATING] = poly[STATIC]
-                    search_point.updateRow(point)
-                    best_rating = poly[TOTAL]
-                elif poly[TOTAL] > point[BEST_RATING]:
-                    point[BEST_X] = point[NEAR_X]
-                    point[BEST_Y] = point[NEAR_Y]
-                    point[BEST_RATING] = poly[TOTAL]
-                    point[STATIC_PNT_RATING] = poly[STATIC]
-                    search_point.updateRow(point)
+                if point[PointEnum.BEST_X] is None:
+                    info_to_point(point, poly, roads, fault)
+                elif poly[PolyEnum.TOTAL] > point[PointEnum.BEST_RATING]:
+                    info_to_point(point, poly, roads, fault)
+
         best_points = arcpy.da.SearchCursor(points, ("BEST_X", "BEST_Y", "stat_rate"))
         rating = 0
         for best_point in best_points:
-
             # calculates total static rating
             rating += best_point[2]
 
             # makes a list of the best points for this iteration
             pnt = arcpy.Point(best_point[0], best_point[1])
             good_points.append(arcpy.PointGeometry(pnt))
-
-
 
         # alternative iteration end checker
         new_dists = None
@@ -233,7 +270,6 @@ try:
 
         i += 1
 
-
     if old_best is not None:
         final_distance_data = get_point_seperations(old_best)
         num_bins = bin_num
@@ -243,4 +279,3 @@ try:
         plt.show()
 finally:
     arcpy.Delete_management("in_memory")
-
