@@ -41,9 +41,13 @@ class Info:
         self.geo_map = self.get_in_out(param_num)
         self.hard_rock_rating = arcpy.GetParameterAsText(param_num.i())
         self.soft_rock_rating = arcpy.GetParameterAsText(param_num.i())
-
         # main program output location
         self.union_output = arcpy.GetParameterAsText(param_num.i())
+
+
+        self.clipped_geo_out = arcpy.GetParameterAsText(param_num.i())  # TODO add to tool
+        self.clipped_roads_out = arcpy.GetParameterAsText(param_num.i())  # TODO add to tool
+
 
     # gets a list containing an input parameter and an output parameter
     def get_in_out(self, param_num):
@@ -293,84 +297,104 @@ STATIC_RATING = "stat_rate"
 
 # function that tell which part of the program to execute and when.
 def coordinate_program():
-    # gets all information from user
-    start = time.time()
-    info = Info()
-    info.get_info()
-    print_time_dif("Getting info took ", start, time.time())
+    try:
+        # gets all information from user
+        start = time.time()
+        info = Info()
+        info.get_info()
+        print_time_dif("Getting info took ", start, time.time())
 
-    # make fault related buffers
-    start = time.time()
-    tool = Tool()
-    prep_tools = PrepTools()
-    info.buffered_fault = tool.make_buffer(info.fault_buffer)
-    info.buffered_side = tool.make_buffer(info.side_buffer)
-    print_time_dif("making basic buffers took ", start, time.time())
+        # make fault related buffers
+        start = time.time()
+        tool = Tool()
+        prep_tools = PrepTools()
+        info.buffered_fault = tool.make_buffer(info.fault_buffer)
+        info.buffered_side = tool.make_buffer(info.side_buffer)
+        print_time_dif("making basic buffers took ", start, time.time())
 
-    # make road related buffers
-    start = time.time()
-    roads_in = tool.clip(info.road_buffer[INPUT], info.buffered_fault, temp + str(fnum.i()), LOWEST_TOLERANCE)
-    print_time_dif("clipping roads took ", start, time.time())
-    start = time.time()
-    road_buffer_copy = copy.deepcopy(info.road_buffer)
-    road_buffer_copy[INPUT] = roads_in
-    info.buffered_road = tool.make_buffer(road_buffer_copy)
-    print_time_dif("buffering roads took ", start, time.time())
+        # make road related buffers
+        start = time.time()
+        roads_in = tool.clip(info.road_buffer[INPUT], info.buffered_fault, temp + str(fnum.i()), LOWEST_TOLERANCE)
+        # adds the clipped roads to the output
+        clipped_roads = arcpy.CopyFeatures_management(roads_in, temp+ str(fnum.i()))
+        arcpy.Dissolve_management(clipped_roads, info.clipped_roads_out)
+        print_time_dif("clipping roads took ", start, time.time())
+        start = time.time()
+        road_buffer_copy = copy.deepcopy(info.road_buffer)
+        road_buffer_copy[INPUT] = roads_in
+        info.buffered_road = tool.make_buffer(road_buffer_copy)
+        print_time_dif("buffering roads took ", start, time.time())
 
-    # clip doc land to fault buffer
-    start = time.time()
-    info.clipped_doc = tool.clip(info.doc_land[INPUT], info.buffered_fault, temp + str(fnum.i()), LOWEST_TOLERANCE)
-    print_time_dif("clipping doc land took ", start, time.time())
+        # clip doc land to fault buffer
+        start = time.time()
+        info.clipped_doc = tool.clip(info.doc_land[INPUT], info.buffered_fault, temp + str(fnum.i()), LOWEST_TOLERANCE)
+        print_time_dif("clipping doc land took ", start, time.time())
 
-    # dissolve doc land into a single feature
-    start = time.time()
-    info.clipped_dissolved_doc = tool.dissolve(info.clipped_doc, info.doc_land[OUTPUT], )
-    print_time_dif("dissolving doc land took ", start, time.time())
+        # dissolve doc land into a single feature
+        start = time.time()
+        info.clipped_dissolved_doc = tool.dissolve(info.clipped_doc, info.doc_land[OUTPUT], )
+        print_time_dif("dissolving doc land took ", start, time.time())
 
-    # clip geo map to area around the fault
-    start = time.time()
-    info.clipped_geo = tool.clip(info.geo_map[INPUT], info.buffered_fault, temp + str(fnum.i()), LOWEST_TOLERANCE)
-    print_time_dif("clipping geo map took ", start, time.time())
+        # clip geo map to area around the fault
+        start = time.time()
+        info.clipped_geo = tool.clip(info.geo_map[INPUT], info.buffered_fault, temp + str(fnum.i()), LOWEST_TOLERANCE)
+        clipped_geo = arcpy.CopyFeatures_management(info.clipped_geo, temp+str(fnum.i()))
+        arcpy.Dissolve_management(clipped_geo, info.clipped_geo_out, "rock_group")
+        print_time_dif("clipping geo map took ", start, time.time())
 
-    # add rating field to output layers
-    start = time.time()
-    add_rating = prep_tools.list_for_add_field(info)
-    tool.add_field(add_rating, RATING, "SHORT")
-    for f_class in add_rating:
-        if f_class is info.buffered_fault:
-            tool.fill_ratings(f_class, RATING, info.fault_buffer_rating)
-        elif f_class is info.buffered_side:
-            tool.fill_ratings(f_class, RATING, info.side_buffer_rating)
-        elif f_class is info.buffered_road:
-            tool.fill_ratings(f_class, RATING, info.road_buffer_rating)
-        elif f_class is info.clipped_dissolved_doc:
-            tool.fill_ratings(f_class, RATING, info.doc_rating)
-        elif f_class is info.clipped_geo:
-            tool.fill_geo_ratings(info.clipped_geo, info)
-        else:
-            raise RuntimeError("one of the classes has not had its value field updated")
-    print_time_dif("adding rating fields took ", start, time.time())
+        # add rating field to output layers
+        start = time.time()
+        add_rating = prep_tools.list_for_add_field(info)
+        tool.add_field(add_rating, RATING, "SHORT")
+        for f_class in add_rating:
+            if f_class is info.buffered_fault:
+                tool.fill_ratings(f_class, RATING, info.fault_buffer_rating)
+            elif f_class is info.buffered_side:
+                tool.fill_ratings(f_class, RATING, info.side_buffer_rating)
+            elif f_class is info.buffered_road:
+                tool.fill_ratings(f_class, RATING, info.road_buffer_rating)
+            elif f_class is info.clipped_dissolved_doc:
+                tool.fill_ratings(f_class, RATING, info.doc_rating)
+            elif f_class is info.clipped_geo:
+                tool.fill_geo_ratings(info.clipped_geo, info)
+            else:
+                raise RuntimeError("one of the classes has not had its value field updated")
+        print_time_dif("adding rating fields took ", start, time.time())
 
-    # dissolve lithostratigraphy based on hard and soft rock
-    start = time.time()
-    info.clipped_dissolved_geo = tool.dissolve(info.clipped_geo, info.geo_map[OUTPUT], RATING)
-    print_time_dif("dissolving lithostratigraphy took ", start, time.time())
+        # dissolve lithostratigraphy based on hard and soft rock
+        start = time.time()
+        info.clipped_dissolved_geo = tool.dissolve(info.clipped_geo, info.geo_map[OUTPUT], RATING)
+        print_time_dif("dissolving lithostratigraphy took ", start, time.time())
 
-    # join all relevant layers with union
-    start = time.time()
-    union_input = prep_tools.list_for_union(info)
-    info.unioned_layers = tool.union(union_input, info.union_output, "")
-    print_time_dif("union of all layers took ", start, time.time())
+        # join all relevant layers with union
+        start = time.time()
+        union_input = prep_tools.list_for_union(info)
+        info.unioned_layers = tool.union(union_input, info.union_output, "")
+        print_time_dif("union of all layers took ", start, time.time())
 
-    # add total static rating to union layer
-    u_layers = [info.union_output]
-    tool.add_field(u_layers, STATIC_RATING, "SHORT")
-    ratings = prep_tools.get_rating_fields(info.union_output)
-    tool.fill_field_from_sum(info.union_output, STATIC_RATING, ratings)
-    start = time.time()
-    arcpy.Delete_management("in_memory")
-    print_time_dif("clearing memory took ", start, time.time())
+        # add total static rating to union layer
+        u_layers = [info.union_output]
+        tool.add_field(u_layers, STATIC_RATING, "SHORT")
+        ratings = prep_tools.get_rating_fields(info.union_output)
+        tool.fill_field_from_sum(info.union_output, STATIC_RATING, ratings)
 
 
+        # make the unioned layers fields useful
+        arcpy.AddField_management(info.union_output, "fault_side", "TEXT")
+        arcpy.AddField_management(info.union_output, "doc_land", "TEXT")
+        polys = arcpy.da.UpdateCursor(info.union_output, ("FID_"+ str(arcpy.Describe(info.buffered_side).Name), "FID_"+ str(arcpy.Describe(info.clipped_dissolved_doc).Name), "fault_side", "doc_land"))
+
+        for poly in polys:
+            if poly[0] == -1:
+                poly[2] = "NO"
+            else:
+                poly[2] = "YES"
+            if poly[1] == -1:
+                poly[3] = "NO"
+            else:
+                poly[3] = "YES"
+            polys.updateRow(poly)
+    finally:
+        arcpy.Delete_management("in_memory")
 arcpy.AddMessage("COORDINATE PROGRAM CALLED")
 coordinate_program()

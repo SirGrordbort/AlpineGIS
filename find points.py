@@ -101,20 +101,30 @@ def get_midpoint(point1, point2):
     return arcpy.PointGeometry(p)
 
 
-def info_to_point(point, poly, roads, fault):
-    point[PointEnum.Best_X] = point[PointEnum.NEAR_X]
+def info_to_point(point, poly, roads, fault, rocks):
+    point[PointEnum.BEST_X] = point[PointEnum.NEAR_X]
     point[PointEnum.BEST_Y] = point[PointEnum.NEAR_Y]
     point[PointEnum.BEST_RATING] = poly[PolyEnum.TOTAL]
     point[PointEnum.STATIC] = poly[PolyEnum.STATIC]
-    point[PointEnum.ROCK_TYPE] = poly[PolyEnum.ROCK_TYPE]
+    point_feature = arcpy.CopyFeatures_management(point[PolyEnum.SHAPE], temp + str(fnum.i()))
+    point[PointEnum.ROCK_TYPE] = get_rock_type(rocks, point_feature)
     point[PointEnum.FAULT_SIDE] = poly[PolyEnum.FAULT_SIDE]
     point[PointEnum.DOC_LAND] = poly[PolyEnum.DOC_LAND]
-    point[PointEnum.DIST_2_RD] = get_dist_2_feature(roads, point)
-    point[PointEnum.DIST_2_FLT] = get_dist_2_feature(fault, point)
+    point[PointEnum.DIST_2_RD] = get_dist_2_feature(roads, point_feature)
+    point[PointEnum.DIST_2_FLT] = get_dist_2_feature(fault, point_feature)
     search_point.updateRow(point)
 
-def get_dist_2_feature(feature, pnt):
-    arcpy.Near_analysis(feature, pnt) #FIXME if this doesnt work try inputting just the shape
+def get_rock_type(rocks, point):
+
+    arcpy.Near_analysis(point, rocks)
+    near_rock = arcpy.da.SearchCursor(point, ("NEAR_FID",))
+    FID = near_rock.next()[0]
+    rock_type_row = arcpy.SelectLayerByAttribute_management(rocks, "NEW_SELECTION", "OBJECTID = " + str(FID))
+    rock_type_search = arcpy.da.SearchCursor(rock_type_row, ("rock_group"))
+    return rock_type_search.next()[0]
+
+def get_dist_2_feature(feature, point):
+    arcpy.Near_analysis(feature, point) #FIXME if this doesnt work try inputting just the shape
     near_dist = arcpy.da.SearchCursor(feature, ("NEAR_DIST",))
     return near_dist.next()[0]
 
@@ -124,9 +134,8 @@ try:
             self.SHAPE = 0
             self.STATIC = 1
             self.TOTAL = 2
-            self.ROCK_TYPE = 3
-            self.FAULT_SIDE = 4
-            self.DOC_LAND = 5
+            self.FAULT_SIDE = 3
+            self.DOC_LAND = 4
     class PointEnum:
         def __init__(self):
             self.SHAPE = 0
@@ -154,6 +163,7 @@ try:
     num_points = arcpy.GetParameter(param_num.i())
     fault = arcpy.GetParameterAsText(param_num.i())
     roads = arcpy.GetParameterAsText(param_num.i()) #FIXME add me to the tool
+    rocks = arcpy.GetParameterAsText(param_num.i())
     polys = arcpy.GetParameterAsText(param_num.i())
     distance_scale_factor = arcpy.GetParameter(param_num.i())
     iteration = arcpy.GetParameter(param_num.i())
@@ -216,19 +226,19 @@ try:
 
         good_points = []
         search_poly = arcpy.da.UpdateCursor(polys,
-                                            ("SHAPE@", "stat_rate", "tot_score", "rock_type", "fault side", "doc_land"))
+                                            ("SHAPE@", "stat_rate", "tot_score", "fault_side", "doc_land"))
         for poly in search_poly:
             find_nearest(poly, points)
             search_point = arcpy.da.UpdateCursor(points, (
                 "SHAPE@", "NEAR_DIST", "NEAR_X", "NEAR_Y", "BEST_X", "BEST_Y", "BEST_SCORE", "stat_rate", "rock_type",
-                "fault side", "doc_land", "dist_2_rd", "dist_2_flt"))
+                "fault_side", "doc_land", "dist_2_rd", "dist_2_flt"))
             for point in search_point:
                 get_total_rating(poly, point, spacing)
                 search_poly.updateRow(poly)
                 if point[PointEnum.BEST_X] is None:
-                    info_to_point(point, poly, roads, fault)
+                    info_to_point(point, poly, roads, fault, rocks)
                 elif poly[PolyEnum.TOTAL] > point[PointEnum.BEST_RATING]:
-                    info_to_point(point, poly, roads, fault)
+                    info_to_point(point, poly, roads, fault, rocks)
 
         best_points = arcpy.da.SearchCursor(points, ("BEST_X", "BEST_Y", "stat_rate"))
         rating = 0
@@ -256,7 +266,7 @@ try:
 
         # makes a feature class from the best current points
         if dist_dif < iteration_end_value:
-            current_best_points = arcpy.CopyFeatures_management(good_points, final_points)
+            current_best_points = arcpy.CopyFeatures_management(points, final_points)
         else:
             current_best_points = arcpy.CopyFeatures_management(good_points, temp + str(fnum.i()))
             new_ideal_points = get_new_initial_points(current_best_points)
