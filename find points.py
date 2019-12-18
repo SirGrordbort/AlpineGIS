@@ -101,22 +101,19 @@ def get_midpoint(point1, point2):
     return arcpy.PointGeometry(p)
 
 
-def info_to_point(point, poly, roads, fault, rocks):
+def info_to_point(point, poly):
     point[PointEnum.BEST_X] = point[PointEnum.NEAR_X]
     point[PointEnum.BEST_Y] = point[PointEnum.NEAR_Y]
     point[PointEnum.BEST_RATING] = poly[PolyEnum.TOTAL]
     point[PointEnum.STATIC] = poly[PolyEnum.STATIC]
-    point_feature = arcpy.CopyFeatures_management(point[PolyEnum.SHAPE], temp + str(fnum.i()))
-    point[PointEnum.ROCK_TYPE] = get_rock_type(rocks, point_feature)
     point[PointEnum.FAULT_SIDE] = poly[PolyEnum.FAULT_SIDE]
     point[PointEnum.DOC_LAND] = poly[PolyEnum.DOC_LAND]
-    point[PointEnum.DIST_2_RD] = get_dist_2_feature(roads, point_feature)
-    point[PointEnum.DIST_2_FLT] = get_dist_2_feature(fault, point_feature)
     search_point.updateRow(point)
+    arcpy.AddMessage("added info to 1 point")
 
 def get_rock_type(rocks, point):
 
-    arcpy.Near_analysis(point, rocks)
+    arcpy.Near_analysis(point, rocks) #FIXME
     near_rock = arcpy.da.SearchCursor(point, ("NEAR_FID",))
     FID = near_rock.next()[0]
     rock_type_row = arcpy.SelectLayerByAttribute_management(rocks, "NEW_SELECTION", "OBJECTID = " + str(FID))
@@ -124,8 +121,8 @@ def get_rock_type(rocks, point):
     return rock_type_search.next()[0]
 
 def get_dist_2_feature(feature, point):
-    arcpy.Near_analysis(feature, point) #FIXME if this doesnt work try inputting just the shape
-    near_dist = arcpy.da.SearchCursor(feature, ("NEAR_DIST",))
+    arcpy.Near_analysis(feature, point) #FIXME
+    near_dist = arcpy.da.SearchCursor(feature, ("NEAR_DIST",), "10 Kilometers", )
     return near_dist.next()[0]
 
 try:
@@ -162,7 +159,7 @@ try:
     param_num = IncrementingNumber(-1)
     num_points = arcpy.GetParameter(param_num.i())
     fault = arcpy.GetParameterAsText(param_num.i())
-    roads = arcpy.GetParameterAsText(param_num.i()) #FIXME add me to the tool
+    roads = arcpy.GetParameterAsText(param_num.i())
     rocks = arcpy.GetParameterAsText(param_num.i())
     polys = arcpy.GetParameterAsText(param_num.i())
     distance_scale_factor = arcpy.GetParameter(param_num.i())
@@ -190,6 +187,31 @@ try:
     dist = 1
 
     dist_dif = iteration_end_value + 1
+    # add a total rating field to be filled later
+    # deleting the field ensures the field is empty before the program begins
+    arcpy.DeleteField_management(polys, "tot_score")
+    arcpy.AddField_management(polys, "tot_score", "SHORT")
+    # for storing the current best value in each point
+    arcpy.DeleteField_management(points, "BEST_X")
+    arcpy.AddField_management(points, "BEST_X", "DOUBLE")
+    arcpy.DeleteField_management(points, "BEST_Y")
+    arcpy.AddField_management(points, "BEST_Y", "DOUBLE")
+    arcpy.DeleteField_management(points, "BEST_SCORE")
+    arcpy.AddField_management(points, "BEST_SCORE", "DOUBLE")
+    arcpy.DeleteField_management(points, "stat_rate")
+    arcpy.AddField_management(points, "stat_rate", "DOUBLE")
+
+    # adds the information fields to the output attribute table
+    arcpy.DeleteField_management(points, "rock_type")
+    arcpy.AddField_management(points, "rock_type", "TEXT")
+    arcpy.DeleteField_management(points, "fault_side")
+    arcpy.AddField_management(points, "fault_side", "TEXT")
+    arcpy.DeleteField_management(points, "doc_land")
+    arcpy.AddField_management(points, "doc_land", "TEXT")
+    arcpy.DeleteField_management(points, "dist_to_rd")
+    arcpy.AddField_management(points, "dist_2_rd", "DOUBLE")
+    arcpy.DeleteField_management(points, "dist_2_flt")
+    arcpy.AddField_management(points, "dist_2_flt", "DOUBLE")
 
     # holds a list of change in change in distances for determining whether the points are oscillating
     old_dists = None
@@ -197,31 +219,7 @@ try:
     i = 1
     old_best = None
     while dist_dif > iteration_end_value:
-        # add a total rating field to be filled later
-        # deleting the field ensures the field is empty before the program begins
-        arcpy.DeleteField_management(polys, "tot_score")
-        arcpy.AddField_management(polys, "tot_score", "SHORT")
-        # for storing the current best value in each point
-        arcpy.DeleteField_management(points, "BEST_X")
-        arcpy.AddField_management(points, "BEST_X", "DOUBLE")
-        arcpy.DeleteField_management(points, "BEST_Y")
-        arcpy.AddField_management(points, "BEST_Y", "DOUBLE")
-        arcpy.DeleteField_management(points, "BEST_SCORE")
-        arcpy.AddField_management(points, "BEST_SCORE", "DOUBLE")
-        arcpy.DeleteField_management(points, "stat_rate")
-        arcpy.AddField_management(points, "stat_rate", "DOUBLE")
 
-        # adds the information fields to the output attribute table
-        arcpy.DeleteField_management(points, "rock_type")
-        arcpy.AddField_management(points, "rock_type", "TEXT")
-        arcpy.DeleteField_management(points, "fault_side")
-        arcpy.AddField_management(points, "fault_side", "TEXT")
-        arcpy.DeleteField_management(points, "doc_land")
-        arcpy.AddField_management(points, "doc_land", "TEXT")
-        arcpy.DeleteField_management(points, "dist_to_rd")
-        arcpy.AddField_management(points, "dist_2_rd", "DOUBLE")
-        arcpy.DeleteField_management(points, "dist_2_flt")
-        arcpy.AddField_management(points, "dist_2_flt", "DOUBLE")
 
 
         good_points = []
@@ -236,11 +234,11 @@ try:
                 get_total_rating(poly, point, spacing)
                 search_poly.updateRow(poly)
                 if point[PointEnum.BEST_X] is None:
-                    info_to_point(point, poly, roads, fault, rocks)
+                    info_to_point(point, poly)
                 elif poly[PolyEnum.TOTAL] > point[PointEnum.BEST_RATING]:
-                    info_to_point(point, poly, roads, fault, rocks)
+                    info_to_point(point, poly)
 
-        best_points = arcpy.da.SearchCursor(points, ("BEST_X", "BEST_Y", "stat_rate"))
+        best_points = arcpy.da.UpdateCursor(points, ("BEST_X", "BEST_Y", "stat_rate", "rock_type", "dist_2_rd", "dist_2_flt", "SHAPE@"))
         rating = 0
         for best_point in best_points:
             # calculates total static rating
@@ -248,7 +246,17 @@ try:
 
             # makes a list of the best points for this iteration
             pnt = arcpy.Point(best_point[0], best_point[1])
-            good_points.append(arcpy.PointGeometry(pnt))
+            good_point = arcpy.PointGeometry(pnt)
+            good_points.append(good_point)
+            #changes the best point coordinates to the actual best coordinates
+            best_point[6] = good_point
+            # fills the dist_2_rd, dist_2_fault and rock_type fields
+            point_feature = arcpy.CopyFeatures_management(best_points[6], temp + str(fnum.i())) #FIXME put this stuff at fixme2
+            best_point[3] = get_rock_type(rocks, point_feature)
+            best_point[4] = get_dist_2_feature(roads, point_feature)
+            best_point[5] = get_dist_2_feature(fault, point_feature)
+            best_points.updateRow(best_point)
+            arcpy.AddMessage("updated best point")
 
         # alternative iteration end checker
         new_dists = None
@@ -266,6 +274,7 @@ try:
 
         # makes a feature class from the best current points
         if dist_dif < iteration_end_value:
+            update_attr_table = arcpy.da.UpdateCursor(points, ("SHAPE@", "dist_2_rd", "dist_2_flt", "rock_type")) #FIXME 2
             current_best_points = arcpy.CopyFeatures_management(points, final_points)
         else:
             current_best_points = arcpy.CopyFeatures_management(good_points, temp + str(fnum.i()))
