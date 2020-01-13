@@ -127,7 +127,7 @@ def info_to_point(point, poly):
 # @param point is a feature class containing a single pointGeometry object
 # @return near_dist.next()[0] is the shortest distance between the feature and the point
 def get_dist_2_feature(feature, point):
-    arcpy.Near_analysis(feature, point) 
+    arcpy.Near_analysis(feature, point)
     near_dist = arcpy.da.SearchCursor(feature, ("NEAR_DIST",))
     return near_dist.next()[0]
 
@@ -272,7 +272,6 @@ try:
             # changes the best point coordinates to the actual best coordinates
             best_point[5] = good_point
             best_points.updateRow(best_point)
-            arcpy.AddMessage("updated best point")
 
         # Iteration end checker
         new_dists = None
@@ -298,16 +297,16 @@ try:
             update_attr_table = arcpy.da.UpdateCursor(points, ("SHAPE@", "dist_2_rd", "dist_2_flt"))
             for point in update_attr_table:
                 feature_point = arcpy.CopyFeatures_management(point[0], temp + str(fnum.i()))
-                point[1] = get_dist_2_feature(roads, feature_point)
-                point[2] = get_dist_2_feature(fault, feature_point)
+                point[1] = get_dist_2_feature(roads, point[0])
+                point[2] = get_dist_2_feature(fault, point[0])
                 update_attr_table.updateRow(point)
+            # deletes irrelevant information from the attribute table
+            arcpy.DeleteField_management(points, "ORIG_FID")
+            arcpy.DeleteField_management(points, "NEAR_FID")
+            arcpy.DeleteField_management(points, "NEAR_DIST")
+            arcpy.DeleteField_management(points, "NEAR_X")
+            arcpy.DeleteField_management(points, "NEAR_Y")
 
-                # deletes irrelevant information from the attribute table
-                arcpy.DeleteField_management(points, "ORIG_FID")
-                arcpy.DeleteField_management(points, "NEAR_FID")
-                arcpy.DeleteField_management(points, "NEAR_DIST")
-                arcpy.DeleteField_management(points, "NEAR_X")
-                arcpy.DeleteField_management(points, "NEAR_Y")
             # makes a feature class from the best current points
             current_best_points = arcpy.CopyFeatures_management(points, final_points)
         else:
